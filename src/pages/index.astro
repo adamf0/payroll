@@ -3,14 +3,14 @@ import Layout from '../layouts/Layout.astro';
 import { generateHourlyToken, generateQrSvg, getSecondsRemainingInHour } from '../lib/qr';
 import { queryAll } from '../lib/db';
 import type { AttendanceRecord } from '../lib/types';
-import { formatIndonesianDate } from '../lib/payroll';
+import { formatIndonesianDate, getJakartaTodayStr } from '../lib/payroll';
 
 const { token, expiresAt } = generateHourlyToken(0);
 const qrSvg = await generateQrSvg(token);
 const secondsRemaining = getSecondsRemainingInHour();
 
 // Fetch recent attendance today
-const todayStr = new Date().toISOString().split('T')[0];
+const todayStr = getJakartaTodayStr();
 const recentAttendance = await queryAll<AttendanceRecord & { name: string; nik: string }>(
   `SELECT a.*, e.name, e.nik 
    FROM attendance a

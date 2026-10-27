@@ -2,7 +2,7 @@
 import Layout from '../../layouts/Layout.astro';
 import { getCurrentUser } from '../../lib/auth';
 import { queryAll, queryOne } from '../../lib/db';
-import { computeAllRealtimePayroll, formatRupiah, formatIndonesianDate } from '../../lib/payroll';
+import { computeAllRealtimePayroll, formatRupiah, formatIndonesianDate, getJakartaTodayStr } from '../../lib/payroll';
 import type { Employee, AttendanceRecord } from '../../lib/types';
 
 const currentUser = await getCurrentUser(Astro.cookies);
@@ -14,7 +14,7 @@ if (!currentUser || currentUser.role !== 'admin') {
 const totalEmployees = (await queryOne<{ count: number }>('SELECT COUNT(*) as count FROM employees WHERE is_active = 1'))?.count || 0;
 
 // 2. Today's Presence Stats
-const todayStr = new Date().toISOString().split('T')[0];
+const todayStr = getJakartaTodayStr();
 const todayAttendance = await queryAll<AttendanceRecord & { name: string; nik: string; scheme: string }>(
   `SELECT a.*, e.name, e.nik, e.scheme 
    FROM attendance a

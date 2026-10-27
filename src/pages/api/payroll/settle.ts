@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro';
 import { getCurrentUser } from '../../../lib/auth';
 import { execute } from '../../../lib/db';
+import { getJakartaTodayStr } from '../../../lib/payroll';
 
 export const POST: APIRoute = async ({ request, cookies }) => {
   const user = await getCurrentUser(cookies);
@@ -13,8 +14,7 @@ export const POST: APIRoute = async ({ request, cookies }) => {
 
   try {
     const data = await request.json();
-    const now = new Date();
-    const todayYmd = now.toISOString().split('T')[0];
+    const todayYmd = getJakartaTodayStr();
 
     // Support batch settlements
     if (Array.isArray(data.items) && data.items.length > 0) {

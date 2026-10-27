@@ -39,6 +39,41 @@ export function formatIndonesianDate(dateInput: string | Date | null | undefined
 }
 
 /**
+ * Returns current date and time in Asia/Jakarta (WIB, UTC+7)
+ */
+export function getJakartaNow(): { dateStr: string; timeStr: string; hour: number; minute: number } {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Jakarta',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date());
+
+  const get = (type: string) => parts.find((p) => p.type === type)?.value || '';
+  const y = get('year');
+  const m = get('month');
+  const d = get('day');
+  const hh = get('hour') === '24' ? '00' : get('hour');
+  const mm = get('minute');
+  const ss = get('second');
+
+  return {
+    dateStr: `${y}-${m}-${d}`,
+    timeStr: `${hh}:${mm}:${ss}`,
+    hour: parseInt(hh, 10),
+    minute: parseInt(mm, 10),
+  };
+}
+
+export function getJakartaTodayStr(): string {
+  return getJakartaNow().dateStr;
+}
+
+/**
  * Calculate the next payday date and remaining days based on employee's payday rule.
  * Rules:
  * - Number string: '25' -> 25th day of the current or next month

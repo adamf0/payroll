@@ -3,6 +3,7 @@ import { validateAttendanceToken } from '../../../lib/qr';
 import { getCurrentUser } from '../../../lib/auth';
 import { queryOne, execute } from '../../../lib/db';
 import type { Employee, AttendanceRecord } from '../../../lib/types';
+import { getJakartaNow } from '../../../lib/payroll';
 
 export const POST: APIRoute = async ({ request, cookies }) => {
   try {
@@ -71,10 +72,8 @@ export const POST: APIRoute = async ({ request, cookies }) => {
       });
     }
 
-    // 3. Check today's record
-    const now = new Date();
-    const dateStr = now.toISOString().split('T')[0];
-    const timeStr = now.toTimeString().split(' ')[0];
+    // 3. Check today's record with Asia/Jakarta (WIB) timezone
+    const { dateStr, timeStr, hour, minute } = getJakartaNow();
 
     const todayRecord = await queryOne<AttendanceRecord>(
       'SELECT * FROM attendance WHERE employee_id = ? AND date = ?',
@@ -83,8 +82,6 @@ export const POST: APIRoute = async ({ request, cookies }) => {
 
     if (!todayRecord) {
       // CHECK IN
-      const hour = now.getHours();
-      const minute = now.getMinutes();
       const isLate = hour > 8 || (hour === 8 && minute > 30);
       const status = isLate ? 'terlambat' : 'hadir';
 
@@ -110,8 +107,9 @@ export const POST: APIRoute = async ({ request, cookies }) => {
     if (!todayRecord.check_out) {
       // CHECK OUT
       const [inH, inM, inS] = todayRecord.check_in.split(':').map(Number);
-      const checkInDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), inH, inM, inS || 0);
-      const durationMin = Math.max(1, Math.round((now.getTime() - checkInDate.getTime()) / (1000 * 60)));
+      const [nowY, nowM, nowD] = dateStr.split('-').map(Number);
+      const checkInDate = new Date(nowY, nowM - 1, nowD, inH, inM, inS || 0);
+      const durationMin = Math.max(1, Math.round((Date.now() - checkInDate.getTime()) / (1000 * 60)));
       const durationHours = (durationMin / 60).toFixed(1);
 
       await execute(

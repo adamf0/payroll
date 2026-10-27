@@ -2,7 +2,7 @@
 import Layout from '../../layouts/Layout.astro';
 import { getCurrentUser } from '../../lib/auth';
 import { queryOne, queryAll } from '../../lib/db';
-import { computeEmployeeRealtimePayroll, formatRupiah, formatIndonesianDate } from '../../lib/payroll';
+import { computeEmployeeRealtimePayroll, formatRupiah, formatIndonesianDate, getJakartaTodayStr } from '../../lib/payroll';
 import type { Employee, AttendanceRecord } from '../../lib/types';
 
 const currentUser = await getCurrentUser(Astro.cookies);
@@ -22,7 +22,7 @@ if (!employee) {
 const payrollInfo = await computeEmployeeRealtimePayroll(employee);
 
 // Today's attendance
-const todayStr = new Date().toISOString().split('T')[0];
+const todayStr = getJakartaTodayStr();
 const todayAttendance = await queryOne<AttendanceRecord>(
   'SELECT * FROM attendance WHERE employee_id = ? AND date = ?',
   [employee.id, todayStr]

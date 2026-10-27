@@ -4,7 +4,7 @@ import { getCurrentUser } from '../../lib/auth';
 import { queryOne, queryAll } from '../../lib/db';
 import { generateHourlyToken } from '../../lib/qr';
 import type { Employee, AttendanceRecord } from '../../lib/types';
-import { formatIndonesianDate } from '../../lib/payroll';
+import { formatIndonesianDate, getJakartaTodayStr } from '../../lib/payroll';
 
 const currentUser = await getCurrentUser(Astro.cookies);
 if (!currentUser || currentUser.role !== 'karyawan' || !currentUser.employee_id) {
@@ -14,7 +14,7 @@ if (!currentUser || currentUser.role !== 'karyawan' || !currentUser.employee_id)
 const employee = await queryOne<Employee>('SELECT * FROM employees WHERE id = ?', [currentUser.employee_id]);
 if (!employee) return Astro.redirect('/login');
 
-const todayStr = new Date().toISOString().split('T')[0];
+const todayStr = getJakartaTodayStr();
 const todayRecord = await queryOne<AttendanceRecord>(
   'SELECT * FROM attendance WHERE employee_id = ? AND date = ?',
   [employee.id, todayStr]

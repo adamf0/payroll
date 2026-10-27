@@ -8,13 +8,19 @@ const QR_SECRET = process.env.QR_SECRET || 'fermi-super-secure-attendance-salt-2
  */
 function getTimeSlice(offsetHours = 0): { dateStr: string; hourStr: string; key: string } {
   const d = new Date(Date.now() + offsetHours * 3600 * 1000);
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  const hour = String(d.getHours()).padStart(2, '0');
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Jakarta',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    hour12: false,
+  }).formatToParts(d);
 
-  const dateStr = `${year}-${month}-${day}`;
-  const hourStr = hour;
+  const get = (type: string) => parts.find((p) => p.type === type)?.value || '';
+  const dateStr = `${get('year')}-${get('month')}-${get('day')}`;
+  const hh = get('hour') === '24' ? '00' : get('hour');
+  const hourStr = hh;
   const key = `${dateStr}-${hourStr}`;
   return { dateStr, hourStr, key };
 }
