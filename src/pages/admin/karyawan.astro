@@ -379,7 +379,10 @@ const employees = await queryAll<EmployeeWithAccount>(`
     window.deactivateEmployee = async function (id, name) {
       if (!confirm(`Apakah Anda yakin ingin menonaktifkan karyawan ${name}?`)) return;
       try {
-        const res = await fetch(`/api/karyawan?id=${id}&action=deactivate`, { method: 'DELETE' });
+        const res = await fetch(`/api/karyawan?id=${id}&action=deactivate`, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+        });
         const data = await res.json();
         if (res.ok && data.success) {
           if (window.showToast) window.showToast(`Karyawan ${name} dinonaktifkan`);
@@ -394,7 +397,10 @@ const employees = await queryAll<EmployeeWithAccount>(`
 
     window.activateEmployee = async function (id, name) {
       try {
-        const res = await fetch(`/api/karyawan?id=${id}&action=activate`, { method: 'DELETE' });
+        const res = await fetch(`/api/karyawan?id=${id}&action=activate`, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+        });
         const data = await res.json();
         if (res.ok && data.success) {
           if (window.showToast) window.showToast(`Karyawan ${name} berhasil diaktifkan kembali`);
@@ -410,7 +416,10 @@ const employees = await queryAll<EmployeeWithAccount>(`
     window.deleteEmployee = async function (id, name) {
       if (!confirm(`Apakah Anda yakin ingin menghapus permanen data karyawan ${name}? Seluruh data absensi, slip gaji, dan akun login karyawan ini akan ikut terhapus.`)) return;
       try {
-        const res = await fetch(`/api/karyawan?id=${id}&action=delete`, { method: 'DELETE' });
+        const res = await fetch(`/api/karyawan?id=${id}&action=delete`, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+        });
         const data = await res.json();
         if (res.ok && data.success) {
           if (window.showToast) window.showToast(data.message || `Karyawan ${name} berhasil dihapus`);

@@ -4,6 +4,9 @@ import tailwind from '@astrojs/tailwind';
 
 export default defineConfig({
   output: 'server',
+  security: {
+    checkOrigin: false,
+  },
   adapter: node({
     mode: 'standalone',
   }),
