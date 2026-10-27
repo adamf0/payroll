@@ -1,0 +1,408 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import { getCurrentUser } from '../../lib/auth';
+import { queryAll } from '../../lib/db';
+import type { AttendanceRecord, Employee } from '../../lib/types';
+import { formatIndonesianDate } from '../../lib/payroll';
+
+const currentUser = await getCurrentUser(Astro.cookies);
+if (!currentUser || currentUser.role !== 'admin') {
+  return Astro.redirect('/login');
+}
+
+// Fetch active employees for the filter dropdown
+const employees = await queryAll<Employee>(
+  'SELECT id, name, nik, scheme, phone FROM employees WHERE is_active = 1 ORDER BY name ASC'
+);
+
+const now = new Date();
+const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+// URL Filter Parameters - default to today's date if not specified
+const hasDateParam = Astro.url.searchParams.has('date');
+const selectedDate = hasDateParam ? (Astro.url.searchParams.get('date')?.trim() || '') : todayStr;
+const selectedEmployeeId = Astro.url.searchParams.get('employee_id')?.trim() || '';
+const initialTab = Astro.url.searchParams.get('tab') === 'belum_absen' ? 'belum_absen' : 'hadir';
+
+const conditions: string[] = [];
+const params: any[] = [];
+
+if (selectedEmployeeId) {
+  conditions.push('a.employee_id = ?');
+  params.push(Number(selectedEmployeeId));
+}
+
+if (selectedDate && selectedDate !== 'all') {
+  conditions.push('a.date = ?');
+  params.push(selectedDate);
+}
+
+const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+// Fetch attendance records with employee details and optional filter
+const attendanceList = await queryAll<AttendanceRecord & { name: string; nik: string; scheme: string }>(
+  `SELECT a.*, e.name, e.nik, e.scheme
+   FROM attendance a
+   JOIN employees e ON a.employee_id = e.id
+   ${whereClause}
+   ORDER BY a.date DESC, a.check_in DESC
+   LIMIT 100`,
+  params
+);
+
+// Target date for absence check (default to selected date or today)
+const targetDateForAbsence = selectedDate || todayStr;
+
+// Ambil ID karyawan yang sudah absen pada tanggal target
+const attendedEmpIds = new Set(
+  (await queryAll<{ employee_id: number }>(
+    'SELECT DISTINCT employee_id FROM attendance WHERE date = ?',
+    [targetDateForAbsence]
+  )).map((r) => r.employee_id)
+);
+
+// Karyawan aktif yang belum absen pada tanggal target
+let unrecordedEmployees = employees.filter((emp) => !attendedEmpIds.has(emp.id));
+if (selectedEmployeeId) {
+  unrecordedEmployees = unrecordedEmployees.filter((emp) => String(emp.id) === selectedEmployeeId);
+}
+
+// Today's summary statistics
+const todayStats = await queryAll<{ status: string; duration_minutes: number; employee_id: number }>(
+  'SELECT status, duration_minutes, employee_id FROM attendance WHERE date = ?',
+  [todayStr]
+);
+const onTimeCount = todayStats.filter((a) => a.status === 'hadir').length;
+const lateCount = todayStats.filter((a) => a.status === 'terlambat').length;
+const totalTodayMinutes = todayStats.reduce((acc, a) => acc + (a.duration_minutes || 0), 0);
+
+const attendedEmpIdsToday = new Set(todayStats.map((a) => a.employee_id));
+const todayUnrecordedCount = employees.filter((e) => !attendedEmpIdsToday.has(e.id)).length;
+
+const hasFilters = Boolean((hasDateParam && selectedDate !== todayStr) || selectedEmployeeId || (hasDateParam && selectedDate === ''));
+const selectedEmployee = employees.find((e) => String(e.id) === selectedEmployeeId);
+---
+
+<Layout title="Daftar Hadir Karyawan" activeNav="admin-presensi">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+    <!-- Header -->
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+      <div>
+        <h1 class="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">Daftar Hadir Karyawan</h1>
+        <p class="text-xs sm:text-sm text-slate-500 mt-1">
+          Pantau jam masuk dan jam pulang seluruh karyawan setiap hari.
+        </p>
+      </div>
+
+    </div>
+
+    <!-- 3 Simple Stats Cards -->
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+      <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm">
+        <span class="text-xs text-slate-400 font-medium block">Hadir Hari Ini</span>
+        <div class="text-2xl font-extrabold text-slate-900 mt-1">{todayStats.length} Karyawan</div>
+        <span class="text-[11px] text-slate-400 mt-0.5 block">{formatIndonesianDate(todayStr)}</span>
+      </div>
+
+      <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm">
+        <span class="text-xs text-slate-400 font-medium block">Ketepatan Waktu</span>
+        <div class="text-2xl font-extrabold text-emerald-600 mt-1">
+          {onTimeCount} <span class="text-xs font-semibold text-slate-400">tepat</span> / {lateCount} <span class="text-xs font-semibold text-amber-600">terlambat</span>
+        </div>
+        <span class="text-[11px] text-slate-400 mt-0.5 block">Batas masuk 08:30 WIB</span>
+      </div>
+
+      <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm">
+        <span class="text-xs text-slate-400 font-medium block">Belum Absen Hari Ini</span>
+        <div class="text-2xl font-extrabold text-rose-600 mt-1">
+          {todayUnrecordedCount} <span class="text-xs font-semibold text-slate-400">karyawan</span>
+        </div>
+        <span class="text-[11px] text-slate-400 mt-0.5 block">Dari total {employees.length} karyawan aktif</span>
+      </div>
+    </div>
+
+    <!-- Filter Box Sederhana -->
+    <div class="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200/80 shadow-sm mb-6">
+      <div class="flex items-center justify-between pb-3 mb-3 border-b border-slate-100">
+        <h2 class="text-sm font-bold text-slate-900">Cari Data Absen</h2>
+        {hasFilters && (
+          <a
+            href="/admin/presensi"
+            class="text-xs font-semibold text-rose-600 hover:text-rose-800"
+          >
+            Hapus Filter
+          </a>
+        )}
+      </div>
+
+      <form method="GET" action="/admin/presensi" class="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+        <input type="hidden" name="tab" id="activeTabInput" value={initialTab} />
+        <div class="sm:col-span-4">
+          <label for="filter-date" class="block text-xs font-semibold text-slate-700 mb-1">
+            Pilih Tanggal
+          </label>
+          <input
+            type="date"
+            id="filter-date"
+            name="date"
+            value={selectedDate}
+            class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-medium text-slate-800 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+        </div>
+
+        <div class="sm:col-span-4">
+          <label for="filter-employee" class="block text-xs font-semibold text-slate-700 mb-1">
+            Pilih Karyawan
+          </label>
+          <select
+            id="filter-employee"
+            name="employee_id"
+            class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-medium text-slate-800 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          >
+            <option value="">Semua Karyawan</option>
+            {employees.map((emp) => (
+               <option value={emp.id} selected={String(emp.id) === selectedEmployeeId}>
+                 {emp.name} (NIK: {emp.nik})
+               </option>
+             ))}
+          </select>
+        </div>
+
+        <div class="sm:col-span-4 flex items-center gap-2">
+          <button
+            type="submit"
+            class="flex-1 py-2 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs transition shadow-sm text-center"
+          >
+            Terapkan
+          </button>
+          <a
+            href={`/admin/presensi?tab=${initialTab}`}
+            class={`py-2 px-3 rounded-xl font-semibold text-xs transition border text-center ${
+              selectedDate === todayStr
+                ? 'bg-indigo-50 border-indigo-300 text-indigo-700 font-bold'
+                : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+            }`}
+          >
+            Hari Ini
+          </a>
+          <a
+            href={`/admin/presensi?date=&tab=${initialTab}`}
+            class={`py-2 px-3 rounded-xl font-semibold text-xs transition border text-center ${
+              selectedDate === ''
+                ? 'bg-indigo-50 border-indigo-300 text-indigo-700 font-bold'
+                : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+            }`}
+          >
+            Semua
+          </a>
+        </div>
+      </form>
+    </div>
+
+    <!-- Tab Presensi: Hadir & Belum Absen -->
+    <div class="flex items-center gap-2 mb-4" id="presensiTabs">
+      <button
+        type="button"
+        id="tabBtnHadir"
+        onclick="switchPresensiTab('hadir')"
+        class={`presensi-tab px-4 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-2 ${
+          initialTab === 'hadir'
+            ? 'bg-indigo-600 text-white shadow-sm'
+            : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
+        }`}
+      >
+        <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+        Hadir ({attendanceList.length})
+      </button>
+      <button
+        type="button"
+        id="tabBtnBelumAbsen"
+        onclick="switchPresensiTab('belum_absen')"
+        class={`presensi-tab px-4 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-2 ${
+          initialTab === 'belum_absen'
+            ? 'bg-indigo-600 text-white shadow-sm'
+            : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
+        }`}
+      >
+        <span class="w-2 h-2 rounded-full bg-rose-500"></span>
+        Belum Absen ({unrecordedEmployees.length})
+      </button>
+    </div>
+
+    <!-- Attendance Table (Hadir) -->
+    <div id="panelHadir" class="bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden" style={initialTab === 'hadir' ? '' : 'display: none;'}>
+      <div class="p-4 border-b border-slate-100 flex items-center justify-between">
+        <h3 class="text-xs font-bold text-slate-900">
+          Daftar Hadir ({attendanceList.length} Catatan)
+        </h3>
+        {selectedDate ? (
+          <span class="text-[11px] text-indigo-600 font-semibold">
+            {selectedDate === todayStr ? 'Menampilkan Hari Ini' : `Tanggal ${formatIndonesianDate(selectedDate)}`}
+          </span>
+        ) : (
+          <span class="text-[11px] text-slate-400 font-semibold">
+            Menampilkan Semua Tanggal
+          </span>
+        )}
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse text-xs">
+          <thead>
+            <tr class="bg-slate-50/60 border-b border-slate-100 text-slate-400 font-semibold uppercase tracking-wider">
+              <th class="py-3 px-4">Nama Karyawan</th>
+              <th class="py-3 px-4">Tanggal</th>
+              <th class="py-3 px-4">Jam Masuk</th>
+              <th class="py-3 px-4">Jam Pulang</th>
+              <th class="py-3 px-4">Lama Kerja</th>
+              <th class="py-3 px-4">Status</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100">
+            {attendanceList.length > 0 ? (
+              attendanceList.map((row) => (
+                <tr class="hover:bg-slate-50/80 transition-colors">
+                  <td class="py-3 px-4">
+                    <div class="font-bold text-slate-900">{row.name}</div>
+                    <div class="text-[11px] text-slate-400">NIK: {row.nik}</div>
+                  </td>
+                  <td class="py-3 px-4 font-medium text-slate-700 whitespace-nowrap">{formatIndonesianDate(row.date)}</td>
+                  <td class="py-3 px-4 font-mono font-bold text-slate-800">{row.check_in}</td>
+                  <td class="py-3 px-4 font-mono font-medium text-slate-700">{row.check_out || 'Belum Pulang'}</td>
+                  <td class="py-3 px-4 font-medium text-slate-900">
+                    {row.duration_minutes > 0 ? `${(row.duration_minutes / 60).toFixed(1)} jam` : '-'}
+                  </td>
+                  <td class="py-3 px-4 whitespace-nowrap">
+                    <span
+                      class={`inline-flex items-center px-2 py-0.5 rounded-full font-semibold text-[10px] whitespace-nowrap ${
+                        row.status === 'hadir'
+                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                          : 'bg-amber-50 text-amber-700 border border-amber-200'
+                      }`}
+                    >
+                      {row.status === 'hadir' ? 'Tepat Waktu' : 'Terlambat'}
+                    </span>
+                  </td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colspan="6" class="py-8 text-center text-slate-400">
+                  Tidak ditemukan data kehadiran untuk filter yang dipilih.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Belum Absen Table -->
+    <div id="panelBelumAbsen" class="bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden" style={initialTab === 'belum_absen' ? '' : 'display: none;'}>
+      <div class="p-4 border-b border-slate-100 flex items-center justify-between">
+        <h3 class="text-xs font-bold text-slate-900">
+          Daftar Belum Absen ({unrecordedEmployees.length} Karyawan)
+        </h3>
+        <span class="text-[11px] text-rose-600 font-semibold">
+          {targetDateForAbsence === todayStr ? 'Hari Ini Belum Ada Presensi' : `Tanggal ${formatIndonesianDate(targetDateForAbsence)}`}
+        </span>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse text-xs">
+          <thead>
+            <tr class="bg-slate-50/60 border-b border-slate-100 text-slate-400 font-semibold uppercase tracking-wider">
+              <th class="py-3 px-4">Nama Karyawan</th>
+              <th class="py-3 px-4">Tanggal</th>
+              <th class="py-3 px-4">Jenis Gaji</th>
+              <th class="py-3 px-4">No. Telepon</th>
+              <th class="py-3 px-4">Status</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100">
+            {unrecordedEmployees.length > 0 ? (
+              unrecordedEmployees.map((emp) => (
+                <tr class="hover:bg-slate-50/80 transition-colors">
+                  <td class="py-3 px-4">
+                    <div class="font-bold text-slate-900">{emp.name}</div>
+                    <div class="text-[11px] text-slate-400">NIK: {emp.nik}</div>
+                  </td>
+                  <td class="py-3 px-4 font-medium text-slate-700 whitespace-nowrap">
+                    {formatIndonesianDate(targetDateForAbsence)}
+                  </td>
+                  <td class="py-3 px-4">
+                    <span
+                      class={`inline-block px-2 py-0.5 rounded text-[10px] font-bold capitalize ${
+                        emp.scheme === 'per_jam'
+                          ? 'bg-sky-50 text-sky-700 border border-sky-200'
+                          : emp.scheme === 'harian'
+                          ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                          : emp.scheme === 'mingguan'
+                          ? 'bg-purple-50 text-purple-700 border border-purple-200'
+                          : 'bg-indigo-50 text-indigo-700 border border-indigo-200'
+                      }`}
+                    >
+                      {emp.scheme.replace('_', ' ')}
+                    </span>
+                  </td>
+                  <td class="py-3 px-4 font-mono text-slate-700">
+                    {emp.phone || '-'}
+                  </td>
+                  <td class="py-3 px-4 whitespace-nowrap">
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full font-semibold text-[10px] whitespace-nowrap bg-rose-50 text-rose-700 border border-rose-200">
+                      Belum Absen
+                    </span>
+                  </td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colspan="5" class="py-8 text-center text-slate-400">
+                  Semua karyawan telah melakukan presensi pada tanggal ini.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script is:inline>
+    window.switchPresensiTab = function(tab) {
+      const panelHadir = document.getElementById('panelHadir');
+      const panelBelumAbsen = document.getElementById('panelBelumAbsen');
+      const tabBtnHadir = document.getElementById('tabBtnHadir');
+      const tabBtnBelumAbsen = document.getElementById('tabBtnBelumAbsen');
+      const activeTabInput = document.getElementById('activeTabInput');
+
+      if (activeTabInput) activeTabInput.value = tab;
+
+      if (tab === 'hadir') {
+        if (panelHadir) panelHadir.style.display = '';
+        if (panelBelumAbsen) panelBelumAbsen.style.display = 'none';
+
+        if (tabBtnHadir) {
+          tabBtnHadir.className = 'presensi-tab px-4 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-2 bg-indigo-600 text-white shadow-sm';
+        }
+        if (tabBtnBelumAbsen) {
+          tabBtnBelumAbsen.className = 'presensi-tab px-4 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-2 bg-white text-slate-700 border border-slate-200 hover:bg-slate-50';
+        }
+      } else {
+        if (panelHadir) panelHadir.style.display = 'none';
+        if (panelBelumAbsen) panelBelumAbsen.style.display = '';
+
+        if (tabBtnBelumAbsen) {
+          tabBtnBelumAbsen.className = 'presensi-tab px-4 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-2 bg-indigo-600 text-white shadow-sm';
+        }
+        if (tabBtnHadir) {
+          tabBtnHadir.className = 'presensi-tab px-4 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-2 bg-white text-slate-700 border border-slate-200 hover:bg-slate-50';
+        }
+      }
+
+      const url = new URL(window.location.href);
+      url.searchParams.set('tab', tab);
+      window.history.replaceState({}, '', url.toString());
+    };
+  </script>
+</Layout>

@@ -1,0 +1,20 @@
+{
+  "name": "fermi-payroll",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "ASTRO_TELEMETRY_DISABLED=1 astro dev",
+    "build": "ASTRO_TELEMETRY_DISABLED=1 astro build",
+    "preview": "ASTRO_TELEMETRY_DISABLED=1 astro preview",
+    "start": "node ./dist/server/entry.mjs",
+    "test": "jiti tests/verify.mjs"
+  },
+  "dependencies": {
+    "@astrojs/node": "^9.1.0",
+    "@astrojs/tailwind": "^5.1.5",
+    "astro": "^5.4.0",
+    "mysql2": "^3.12.0",
+    "qrcode": "^1.5.4",
+    "tailwindcss": "^3.4.17"
+  }
+}

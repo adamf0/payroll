@@ -1,0 +1,360 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import { getCurrentUser } from '../../lib/auth';
+import { queryOne, queryAll } from '../../lib/db';
+import { computeEmployeeRealtimePayroll, formatRupiah, formatIndonesianDate } from '../../lib/payroll';
+import type { Employee, PayrollSettlement } from '../../lib/types';
+
+const currentUser = await getCurrentUser(Astro.cookies);
+if (!currentUser || currentUser.role !== 'karyawan' || !currentUser.employee_id) {
+  return Astro.redirect('/login');
+}
+
+const employee = await queryOne<Employee>('SELECT * FROM employees WHERE id = ?', [currentUser.employee_id]);
+if (!employee) return Astro.redirect('/login');
+
+const payrollInfo = await computeEmployeeRealtimePayroll(employee);
+
+// Fetch settled payouts for this employee
+const settlements = await queryAll<PayrollSettlement>(
+  `SELECT * FROM payroll_settlements WHERE employee_id = ? ORDER BY id DESC`,
+  [employee.id]
+);
+
+function getUnitLabel(scheme: string, units: number) {
+  if (scheme === 'per_jam') return `${units} Jam Kerja`;
+  if (scheme === 'harian') return `${units} Hari Kerja`;
+  if (scheme === 'mingguan') return `${units} Minggu`;
+  return `${units} Bulan`;
+}
+
+function getRateUnitLabel(scheme: string) {
+  if (scheme === 'per_jam') return '/ jam';
+  if (scheme === 'harian') return '/ hari';
+  if (scheme === 'mingguan') return '/ minggu';
+  return '/ bulan';
+}
+---
+
+<Layout title="Gaji & Slip Saya" activeNav="karyawan-payroll">
+  <div class="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+    <!-- Header -->
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+      <div>
+        <h1 class="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">Gaji & Slip Saya</h1>
+        <p class="text-xs sm:text-sm text-slate-500 mt-1">
+          Pantau gaji yang terkumpul saat ini dan riwayat slip gaji yang telah dibayarkan.
+        </p>
+      </div>
+
+      <div class="bg-white border border-slate-200/80 px-4 py-2 rounded-2xl shadow-sm self-start sm:self-auto text-left sm:text-right">
+        <span class="text-[11px] text-slate-400 block">Jenis Gaji</span>
+        <div class="text-sm font-bold text-slate-900 capitalize">
+          Gaji {employee.scheme.replace('_', ' ')}
+        </div>
+      </div>
+    </div>
+
+    <!-- Gaji Berjalan Card -->
+    <div class="bg-white rounded-3xl p-6 sm:p-7 border border-slate-200/80 shadow-sm mb-8">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-100">
+        <div>
+          <span class="text-xs font-semibold text-slate-400 block mb-1">
+            Gaji Berjalan Periode Ini
+          </span>
+          <div class="text-3xl font-extrabold text-indigo-600">
+            {payrollInfo.currency_formatted}
+          </div>
+          <p class="text-xs text-slate-500 mt-1">
+            {employee.scheme === 'per_jam' || employee.scheme === 'harian'
+              ? 'Gaji berjalan yang siap dicairkan hari itu juga'
+              : 'Gaji yang sudah terkumpul (akan cair pada tanggal gajian)'}
+          </p>
+        </div>
+
+        <div class="text-left sm:text-right">
+          <span class="text-xs text-slate-400 block mb-1">Jadwal Gajian</span>
+          {employee.scheme === 'per_jam' || employee.scheme === 'harian' ? (
+            <div>
+              <span class="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-emerald-50 text-emerald-800 text-xs font-bold border border-emerald-200">
+                <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+                Bisa Cair Hari Ini
+              </span>
+              <p class="text-[10px] text-slate-400 mt-1">Bisa bayar hari itu juga</p>
+            </div>
+          ) : (
+            <div>
+              <div class="text-base font-bold text-slate-900 whitespace-nowrap">
+                {formatIndonesianDate(payrollInfo.next_payday)}
+              </div>
+              <span class="inline-block px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-semibold text-[11px] mt-1 border border-emerald-200">
+                {payrollInfo.days_until_payday <= 0 ? 'Siap Cair Hari Ini' : payrollInfo.days_until_payday + ' hari lagi'}
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <!-- Rincian Sederhana -->
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-5 pt-5 text-xs">
+        <div>
+          <span class="text-slate-400 block mb-1">Tarif Gaji</span>
+          <div class="text-sm font-bold text-slate-900">
+            {formatRupiah(employee.base_rate)} {getRateUnitLabel(employee.scheme)}
+          </div>
+          <span class="text-[10px] text-slate-400 block mt-0.5">
+            {employee.scheme === 'mingguan' ? 'Dibagi 6 hari kerja/minggu' : employee.scheme === 'bulanan' ? 'Dibagi 26 hari kerja/bulan' : ''}
+          </span>
+        </div>
+
+        <div>
+          <span class="text-slate-400 block mb-1">Data Kehadiran Periode Ini</span>
+          <div class="text-sm font-bold text-slate-900">
+            {payrollInfo.attendance_label}
+          </div>
+          {payrollInfo.attendance_badge && (
+            <span class={`inline-block px-2 py-0.5 rounded text-[10px] font-bold mt-1 ${
+              payrollInfo.attendance_badge_type === 'warning'
+                ? 'bg-amber-100 text-amber-800'
+                : payrollInfo.attendance_badge_type === 'danger'
+                ? 'bg-rose-100 text-rose-800'
+                : 'bg-emerald-100 text-emerald-800'
+            }`}>
+              {payrollInfo.attendance_badge}
+            </span>
+          )}
+        </div>
+
+        <div>
+          <span class="text-slate-400 block mb-1">Aturan Gajian</span>
+          <div class="text-sm font-bold text-slate-900">
+            {employee.scheme === 'per_jam' || employee.scheme === 'harian'
+              ? 'Hari Itu Juga (Harian)'
+              : employee.payday_rule === 'jumat'
+              ? 'Setiap Hari Jumat'
+              : `Setiap Tanggal ${employee.payday_rule}`}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Riwayat Slip Gaji -->
+    <div class="bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden">
+      <div class="p-5 border-b border-slate-100 flex items-center justify-between">
+        <div>
+          <h2 class="text-base font-bold text-slate-900">Riwayat Slip Gaji</h2>
+          <p class="text-xs text-slate-500">Bukti pembayaran gaji yang sudah ditransfer</p>
+        </div>
+        <span class="text-xs px-3 py-1 rounded-full bg-slate-100 text-slate-600 font-medium">
+          {settlements.length} Slip Tersedia
+        </span>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse text-xs">
+          <thead>
+            <tr class="bg-slate-50/60 border-b border-slate-100 text-slate-400 font-semibold uppercase tracking-wider">
+              <th class="py-3 px-4">No. Slip</th>
+              <th class="py-3 px-4">Periode Kerja</th>
+              <th class="py-3 px-4">Total Kerja</th>
+              <th class="py-3 px-4">Total Gaji</th>
+              <th class="py-3 px-4">Tanggal Bayar</th>
+              <th class="py-3 px-4 text-right">Aksi</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100">
+            {settlements.length > 0 ? (
+              settlements.map((s) => (
+                <tr class="hover:bg-slate-50/80 transition-colors">
+                  <td class="py-3.5 px-4 font-mono font-bold text-slate-900 whitespace-nowrap">
+                    #SLIP-{s.id.toString().padStart(4, '0')}
+                  </td>
+                  <td class="py-3.5 px-4 font-medium text-slate-800 whitespace-nowrap">
+                    {formatIndonesianDate(s.period_start, false)} s/d {formatIndonesianDate(s.period_end, false)}
+                  </td>
+                  <td class="py-3.5 px-4">
+                    <span class="font-semibold text-slate-800">{getUnitLabel(s.scheme, s.total_units)}</span>
+                  </td>
+                  <td class="py-3.5 px-4 whitespace-nowrap">
+                    <span class="font-extrabold text-slate-900 text-sm">{formatRupiah(s.amount_paid)}</span>
+                  </td>
+                  <td class="py-3.5 px-4 text-slate-600 whitespace-nowrap">
+                    {formatIndonesianDate(s.settled_at)}
+                  </td>
+                  <td class="py-3.5 px-4 text-right whitespace-nowrap">
+                    <button
+                      type="button"
+                      onclick={`openSlipModal(${JSON.stringify({
+                        slipNo: `#SLIP-${s.id.toString().padStart(4, '0')}`,
+                        empName: employee.name,
+                        empNik: employee.nik,
+                        period: `${formatIndonesianDate(s.period_start, false)} s/d ${formatIndonesianDate(s.period_end, false)}`,
+                        scheme: s.scheme.replace('_', ' '),
+                        units: getUnitLabel(s.scheme, s.total_units),
+                        rateFormatted: `${formatRupiah(s.rate)} ${getRateUnitLabel(s.scheme)}`,
+                        amountFormatted: formatRupiah(s.amount_paid),
+                        settledDate: formatIndonesianDate(s.settled_at)
+                      })})`}
+                      class="px-3.5 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold transition text-xs border border-indigo-200"
+                    >
+                      Lihat & Cetak Slip
+                    </button>
+                  </td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colspan="6" class="py-8 text-center text-slate-400">
+                  Belum ada riwayat slip gaji sebelumnya.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Slip Gaji Sederhana -->
+  <div id="slip-modal" class="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-md w-full border border-slate-200 shadow-xl overflow-hidden">
+      <div class="p-4 bg-slate-900 text-white flex items-center justify-between">
+        <div class="text-sm font-bold">Bukti Slip Gaji</div>
+        <button
+          type="button"
+          onclick="closeSlipModal()"
+          class="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-white flex items-center justify-center text-sm font-bold"
+        >
+          &times;
+        </button>
+      </div>
+
+      <div class="p-6 text-xs text-slate-700 space-y-3">
+        <div class="flex justify-between pb-3 border-b border-slate-100">
+          <span class="text-slate-400">Nomor Slip:</span>
+          <strong id="modal-slip-no" class="font-mono text-slate-900">#SLIP-0000</strong>
+        </div>
+
+        <div class="space-y-2 py-1">
+          <div class="flex justify-between">
+            <span class="text-slate-500">Nama:</span>
+            <strong id="modal-emp-name" class="text-slate-900">Nama</strong>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-slate-500">Periode Kerja:</span>
+            <span id="modal-period" class="text-slate-800">Periode</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-slate-500">Jenis Gaji:</span>
+            <span id="modal-scheme" class="text-slate-800 capitalize font-medium">Skema</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-slate-500">Tarif:</span>
+            <span id="modal-rate" class="font-medium text-slate-800">Tarif</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-slate-500">Total Kerja:</span>
+            <strong id="modal-units" class="text-slate-900">Unit</strong>
+          </div>
+          <div class="flex justify-between text-slate-400">
+            <span>Potongan:</span>
+            <span>Rp 0 (Tidak ada)</span>
+          </div>
+        </div>
+
+        <div class="p-4 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-between mt-2">
+          <span class="font-bold text-indigo-950 text-xs">Total Gaji Bersih</span>
+          <div id="modal-amount" class="text-lg font-extrabold text-indigo-900">
+            Rp 0
+          </div>
+        </div>
+
+        <div class="text-[11px] text-slate-400 text-center pt-2">
+          Dibayarkan pada <span id="modal-settled-date">Tanggal</span>. Resmi dari sistem Fermi.
+        </div>
+      </div>
+
+      <div class="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2">
+        <button
+          type="button"
+          onclick="closeSlipModal()"
+          class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-200 transition"
+        >
+          Tutup
+        </button>
+        <button
+          type="button"
+          id="modal-print-btn"
+          class="px-5 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white transition shadow-sm"
+        >
+          Cetak Slip
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script is:inline>
+    let activeSlipData = null;
+
+    window.openSlipModal = function (data) {
+      activeSlipData = data;
+      document.getElementById('modal-slip-no').textContent = data.slipNo;
+      document.getElementById('modal-settled-date').textContent = data.settledDate;
+      document.getElementById('modal-emp-name').textContent = data.empName;
+      document.getElementById('modal-period').textContent = data.period;
+      document.getElementById('modal-scheme').textContent = data.scheme;
+      document.getElementById('modal-rate').textContent = data.rateFormatted;
+      document.getElementById('modal-units').textContent = data.units;
+      document.getElementById('modal-amount').textContent = data.amountFormatted;
+
+      document.getElementById('slip-modal').classList.remove('hidden');
+    };
+
+    window.closeSlipModal = function () {
+      document.getElementById('slip-modal').classList.add('hidden');
+    };
+
+    document.getElementById('modal-print-btn').addEventListener('click', () => {
+      if (!activeSlipData) return;
+      const d = activeSlipData;
+      const printWindow = window.open('', '', 'width=600,height=600');
+      printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>Slip Gaji ${d.slipNo}</title>
+            <style>
+              body { font-family: sans-serif; padding: 30px; color: #0f172a; margin: 0; }
+              .header { border-bottom: 2px solid #0f172a; padding-bottom: 10px; margin-bottom: 20px; }
+              .title { font-size: 18px; font-weight: bold; }
+              .row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px; }
+              .total { margin-top: 15px; border-top: 2px solid #0f172a; padding-top: 10px; font-size: 15px; font-weight: bold; }
+              .footer { margin-top: 30px; font-size: 11px; color: #64748b; text-align: center; }
+            </style>
+          </head>
+          <body>
+            <div class="header">
+              <div class="title">FERMI PAYROLL - BUKTI SLIP GAJI</div>
+              <div style="font-size: 12px; color: #64748b;">${d.slipNo}</div>
+            </div>
+            <div class="row"><span>Nama Karyawan:</span><strong>${d.empName}</strong></div>
+            <div class="row"><span>Periode Kerja:</span><span>${d.period}</span></div>
+            <div class="row"><span>Jenis Gaji:</span><span style="text-transform: capitalize;">${d.scheme}</span></div>
+            <div class="row"><span>Tarif:</span><span>${d.rateFormatted}</span></div>
+            <div class="row"><span>Total Kerja:</span><strong>${d.units}</strong></div>
+            <div class="row total">
+              <span>Total Gaji Bersih:</span>
+              <span>${d.amountFormatted}</span>
+            </div>
+            <div class="footer">
+              Dibayarkan pada ${d.settledDate}. Sah tanpa tanda tangan.
+            </div>
+          </body>
+        </html>
+      `);
+      printWindow.document.close();
+      printWindow.focus();
+      printWindow.print();
+    });
+  </script>
+</Layout>

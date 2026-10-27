@@ -1,0 +1,540 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import { getCurrentUser } from '../../lib/auth';
+import { computeAllRealtimePayroll, formatRupiah, formatIndonesianDate } from '../../lib/payroll';
+import type { PayrollSettlement, Employee } from '../../lib/types';
+import { queryAll } from '../../lib/db';
+
+const currentUser = await getCurrentUser(Astro.cookies);
+if (!currentUser || currentUser.role !== 'admin') {
+  return Astro.redirect('/login');
+}
+
+const payrollItems = await computeAllRealtimePayroll();
+const totalAccrued = payrollItems.reduce((sum, item) => sum + (Number(item.accrued_amount) || 0), 0);
+
+const now = new Date();
+const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+// Helper: Tentukan kategori status tagihan (hari ini bayar, belum terbayar, sedang berlangsung)
+function getItemStatus(item: typeof payrollItems[0]): 'hari_ini_bayar' | 'belum_terbayar' | 'sedang_berlangsung' {
+  const isDailyOrHourly = item.employee.scheme === 'per_jam' || item.employee.scheme === 'harian';
+  if (isDailyOrHourly) {
+    return item.period_end === todayStr ? 'hari_ini_bayar' : 'belum_terbayar';
+  }
+  // Mingguan / Bulanan
+  // 1. Jika hari ini adalah hari/tanggal gajian:
+  if (item.next_payday === todayStr) {
+    return 'hari_ini_bayar';
+  }
+  // 2. Jika periode sudah berakhir atau hari gajian sudah lewat di masa lalu:
+  if ((item.period_end && item.period_end < todayStr) || (item.next_payday && item.next_payday < todayStr)) {
+    return 'belum_terbayar';
+  }
+  // 3. Sisanya adalah siklus berjalan yang belum jatuh tempo gajian:
+  return 'sedang_berlangsung';
+}
+
+const enrichedItems = payrollItems.map((item) => ({
+  ...item,
+  statusCategory: getItemStatus(item),
+}));
+
+// Hitung total item per kategori status
+const countHariIni = enrichedItems.filter((i) => i.statusCategory === 'hari_ini_bayar').length;
+const countBelumBayar = enrichedItems.filter((i) => i.statusCategory === 'belum_terbayar').length;
+const countBerlangsung = enrichedItems.filter((i) => i.statusCategory === 'sedang_berlangsung').length;
+
+// Kelompokkan data per nama karyawan
+interface EmployeeGroup {
+  employee: Employee;
+  items: typeof enrichedItems;
+  totalAmount: number;
+}
+
+const employeeGroupsMap = new Map<number, EmployeeGroup>();
+for (const item of enrichedItems) {
+  if (!employeeGroupsMap.has(item.employee.id)) {
+    employeeGroupsMap.set(item.employee.id, {
+      employee: item.employee,
+      items: [],
+      totalAmount: 0,
+    });
+  }
+  const grp = employeeGroupsMap.get(item.employee.id)!;
+  grp.items.push(item);
+  grp.totalAmount += Number(item.accrued_amount) || 0;
+}
+const employeeGroups = Array.from(employeeGroupsMap.values());
+
+// Unique employees untuk dropdown filter
+const uniqueEmployees = employeeGroups.map((g) => g.employee).sort((a, b) => a.name.localeCompare(b.name));
+
+// Fetch recent settlements
+const settlements = await queryAll<{
+  id: number;
+  name: string;
+  nik: string;
+  period_start: string;
+  period_end: string;
+  scheme: string;
+  total_units: number;
+  amount_paid: number;
+  settled_at: string;
+}>(
+  `SELECT s.*, e.name, e.nik
+   FROM payroll_settlements s
+   JOIN employees e ON s.employee_id = e.id
+   ORDER BY s.id DESC LIMIT 50`
+);
+---
+
+<Layout title="Kelola Gaji Karyawan" activeNav="admin-payroll">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+    <!-- Header -->
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+      <div>
+        <h1 class="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">Kelola Gaji Karyawan</h1>
+        <p class="text-xs sm:text-sm text-slate-500 mt-1">
+          Pantau gaji berjalan karyawan. Dikelompokkan per karyawan dengan filter status tagihan.
+        </p>
+      </div>
+
+      <div class="bg-indigo-50 border border-indigo-200 px-4 py-2.5 rounded-2xl text-left sm:text-right">
+        <span class="text-[11px] font-semibold text-indigo-700 block">Total Gaji Belum Dibayar</span>
+        <div class="text-xl font-extrabold text-indigo-900">{formatRupiah(totalAccrued)}</div>
+      </div>
+    </div>
+
+    <!-- Tab Filter Status: Belum Terbayar, Hari Ini Bayar, Sedang Berlangsung -->
+    <div class="bg-white rounded-3xl border border-slate-200/80 shadow-sm p-4 mb-6">
+      <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <!-- Status Tabs -->
+        <div class="flex flex-wrap items-center gap-2" id="statusTabs">
+          <button
+            type="button"
+            onclick="filterStatus('hari_ini_bayar', this)"
+            class="status-tab px-3.5 py-2 rounded-xl text-xs font-bold transition bg-indigo-600 text-white shadow-sm flex items-center gap-1.5"
+          >
+            <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+            Hari Ini Bayar ({countHariIni})
+          </button>
+          <button
+            type="button"
+            onclick="filterStatus('belum_terbayar', this)"
+            class="status-tab px-3.5 py-2 rounded-xl text-xs font-bold transition bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 flex items-center gap-1.5"
+          >
+            <span class="w-2 h-2 rounded-full bg-rose-500"></span>
+            Belum Terbayar ({countBelumBayar})
+          </button>
+          <button
+            type="button"
+            onclick="filterStatus('sedang_berlangsung', this)"
+            class="status-tab px-3.5 py-2 rounded-xl text-xs font-bold transition bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 flex items-center gap-1.5"
+          >
+            <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+            Sedang Berlangsung ({countBerlangsung})
+          </button>
+        </div>
+
+        <!-- Filter Dropdown & Search -->
+        <div class="flex flex-wrap items-center gap-2">
+          <!-- Filter Skema -->
+          <select
+            id="schemeFilter"
+            onchange="applyFilters()"
+            class="px-3 py-2 rounded-xl border border-slate-200 text-xs font-medium text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          >
+            <option value="all">Semua Jenis Gaji</option>
+            <option value="per_jam">Per Jam</option>
+            <option value="harian">Harian</option>
+            <option value="mingguan">Mingguan</option>
+            <option value="bulanan">Bulanan</option>
+          </select>
+
+          <!-- Filter Karyawan -->
+          <select
+            id="empFilter"
+            onchange="applyFilters()"
+            class="px-3 py-2 rounded-xl border border-slate-200 text-xs font-medium text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          >
+            <option value="">Semua Karyawan ({uniqueEmployees.length})</option>
+            {uniqueEmployees.map((emp) => (
+              <option value={emp.id.toString()}>
+                {emp.name} ({emp.scheme.replace('_', ' ')})
+              </option>
+            ))}
+          </select>
+
+          <!-- Cari Nama -->
+          <input
+            type="text"
+            id="searchFilter"
+            oninput="applyFilters()"
+            placeholder="Cari nama karyawan..."
+            class="px-3 py-2 rounded-xl border border-slate-200 text-xs text-slate-700 placeholder:text-slate-400 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 w-44"
+          />
+        </div>
+      </div>
+    </div>
+
+    <!-- Tabel Gaji Berjalan dengan Heading Pengelompokan Karyawan -->
+    <div class="bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden mb-10">
+      <div class="p-4 border-b border-slate-100 flex items-center justify-between">
+        <div>
+          <h2 class="text-sm font-bold text-slate-900">
+            Daftar Gaji Karyawan (<span id="visibleRowCount">{countHariIni}</span> Tagihan)
+          </h2>
+          <span class="text-[11px] text-slate-400">Dikelompokkan per nama karyawan jika tagihan lebih dari 1 baris</span>
+        </div>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse text-xs">
+          <thead>
+            <tr class="bg-slate-50/60 border-b border-slate-100 text-slate-400 font-semibold uppercase tracking-wider">
+              <th class="py-3 px-4">Nama Karyawan</th>
+              <th class="py-3 px-4">Periode / Tanggal</th>
+              <th class="py-3 px-4">Jenis Gaji</th>
+              <th class="py-3 px-4">Tarif</th>
+              <th class="py-3 px-4">Data Kehadiran</th>
+              <th class="py-3 px-4">Status & Jadwal</th>
+              <th class="py-3 px-4">Gaji Siap Bayar</th>
+              <th class="py-3 px-4 text-right">Aksi</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100" id="payrollTableBody">
+            {employeeGroups.map((grp) => (
+              <>
+                {/* Heading Karyawan jika datanya lebih dari 1 */}
+                {grp.items.length > 1 && (
+                  <tr
+                    class="group-header-row bg-slate-100/90 border-t-2 border-b border-slate-200"
+                    data-group-header="true"
+                    data-emp-id={grp.employee.id.toString()}
+                    data-scheme={grp.employee.scheme}
+                    data-emp-name={grp.employee.name.toLowerCase()}
+                    style={grp.items.filter(i => i.statusCategory === 'hari_ini_bayar').length > 1 ? '' : 'display: none;'}
+                  >
+                    <td colspan="8" class="py-2.5 px-4">
+                      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div class="flex items-center gap-2.5">
+                          <span class="w-7 h-7 rounded-full bg-indigo-600 text-white font-bold text-xs flex items-center justify-center shrink-0 shadow-sm">
+                            {grp.employee.name.charAt(0)}
+                          </span>
+                          <div>
+                            <span class="font-extrabold text-slate-900 text-sm">{grp.employee.name}</span>
+                            <span class="text-xs text-slate-500 ml-2">
+                              <span class="capitalize font-semibold text-slate-700">{grp.employee.scheme.replace('_', ' ')}</span> • <span class="group-count font-bold text-indigo-700">{grp.items.filter(i => i.statusCategory === 'hari_ini_bayar').length} Tagihan</span>
+                            </span>
+                          </div>
+                        </div>
+                        <div class="text-xs sm:text-right">
+                          <span class="text-slate-500">Total Akumulasi:</span>
+                          <span class="font-extrabold text-indigo-900 text-sm ml-1.5">{formatRupiah(grp.totalAmount)}</span>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+
+                {/* Baris data tagihan untuk karyawan ini */}
+                {grp.items.map((item) => (
+                  <tr
+                    class="payroll-row hover:bg-slate-50/80 transition-colors"
+                    data-emp-id={grp.employee.id.toString()}
+                    data-status={item.statusCategory}
+                    data-scheme={grp.employee.scheme}
+                    data-emp-name={grp.employee.name.toLowerCase()}
+                    style={item.statusCategory === 'hari_ini_bayar' ? '' : 'display: none;'}
+                  >
+                    <td class="py-3.5 px-4">
+                      <div class="font-bold text-slate-900 text-sm">{item.employee.name}</div>
+                      <div class="text-[11px] text-slate-400">NIK: {item.employee.nik}</div>
+                    </td>
+                    <td class="py-3.5 px-4 font-medium text-slate-800 whitespace-nowrap">
+                      {item.period_label}
+                    </td>
+                    <td class="py-3.5 px-4">
+                      <span
+                        class={`inline-block px-2 py-0.5 rounded text-[10px] font-bold capitalize ${
+                          item.employee.scheme === 'per_jam'
+                            ? 'bg-sky-50 text-sky-700 border border-sky-200'
+                            : item.employee.scheme === 'harian'
+                            ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                            : item.employee.scheme === 'mingguan'
+                            ? 'bg-purple-50 text-purple-700 border border-purple-200'
+                            : 'bg-indigo-50 text-indigo-700 border border-indigo-200'
+                        }`}
+                      >
+                        {item.employee.scheme.replace('_', ' ')}
+                      </span>
+                    </td>
+                    <td class="py-3.5 px-4 font-mono font-medium text-slate-700 whitespace-nowrap">
+                      {formatRupiah(item.employee.base_rate)}
+                      <span class="text-[10px] text-slate-400 block font-sans">
+                        {item.employee.scheme === 'per_jam'
+                          ? '/ jam'
+                          : item.employee.scheme === 'harian'
+                          ? '/ hari'
+                          : item.employee.scheme === 'mingguan'
+                          ? '/ minggu (÷ 6)'
+                          : '/ bulan (÷ 26)'}
+                      </span>
+                    </td>
+                    <td class="py-3.5 px-4 whitespace-nowrap">
+                      <div class="font-bold text-slate-900 text-sm">
+                        {item.attendance_label}
+                      </div>
+                      {item.attendance_badge && (
+                        <div class="mt-0.5">
+                          <span
+                            class={`inline-block px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                              item.attendance_badge_type === 'success'
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                : item.attendance_badge_type === 'warning'
+                                ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                : item.attendance_badge_type === 'danger'
+                                ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                                : 'bg-slate-100 text-slate-700'
+                            }`}
+                          >
+                            {item.attendance_badge}
+                          </span>
+                        </div>
+                      )}
+                    </td>
+                    <td class="py-3.5 px-4 whitespace-nowrap">
+                      {item.statusCategory === 'hari_ini_bayar' ? (
+                        <div>
+                          <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                            Hari Ini Bayar
+                          </span>
+                          <div class="text-[10px] text-slate-400 mt-0.5">Bisa bayar hari ini</div>
+                        </div>
+                      ) : item.statusCategory === 'belum_terbayar' ? (
+                        <div>
+                          <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200">
+                            <span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
+                            Belum Terbayar
+                          </span>
+                          <div class="text-[10px] text-slate-400 mt-0.5">Masa lalu belum dicairkan</div>
+                        </div>
+                      ) : (
+                        <div>
+                          <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                            <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                            Sedang Berlangsung
+                          </span>
+                          <div class="text-[10px] text-slate-400 mt-0.5">
+                            {item.days_until_payday > 0 ? `${item.days_until_payday} hari lagi gajian` : 'Periode berjalan'}
+                          </div>
+                        </div>
+                      )}
+                    </td>
+                    <td class="py-3.5 px-4 whitespace-nowrap">
+                      <div class="font-extrabold text-sm text-indigo-600">{item.currency_formatted}</div>
+                      <div class="text-[10px] text-slate-400 max-w-[200px] truncate" title={item.breakdown}>
+                        {item.breakdown}
+                      </div>
+                    </td>
+                    <td class="py-3.5 px-4 text-right whitespace-nowrap">
+                      <button
+                        onclick={`settlePayroll(${item.employee.id}, '${item.employee.name}', '${item.employee.scheme}', ${item.accrued_amount}, ${item.employee.base_rate}, ${item.employee.scheme === 'per_jam' ? item.total_hours_worked : item.total_present_days}, '${item.period_start || ''}', '${item.period_end || ''}')`}
+                        class={`px-3.5 py-1.5 rounded-xl font-bold text-xs transition shadow-sm ${
+                          item.statusCategory === 'hari_ini_bayar'
+                            ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                            : item.statusCategory === 'belum_terbayar'
+                            ? 'bg-rose-600 hover:bg-rose-700 text-white'
+                            : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                        }`}
+                      >
+                        {item.statusCategory === 'hari_ini_bayar'
+                          ? 'Bayar Hari Ini'
+                          : item.statusCategory === 'belum_terbayar'
+                          ? 'Bayar Sekarang'
+                          : 'Bayar Gaji'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </>
+            ))}
+          </tbody>
+        </table>
+        <div id="emptyFilterMsg" class="py-10 text-center text-slate-400 text-xs" style={countHariIni === 0 ? '' : 'display: none;'}>
+          Tidak ada tagihan gaji yang cocok dengan filter yang dipilih.
+        </div>
+      </div>
+    </div>
+
+    <!-- Riwayat Pembayaran Gaji -->
+    <div class="bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden">
+      <div class="p-4 border-b border-slate-100 flex items-center justify-between">
+        <h2 class="text-sm font-bold text-slate-900">Riwayat Pembayaran Gaji</h2>
+        <span class="text-xs text-slate-400">{settlements.length} Pembayaran Tercatat</span>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse text-xs">
+          <thead>
+            <tr class="bg-slate-50/60 border-b border-slate-100 text-slate-400 font-semibold uppercase tracking-wider">
+              <th class="py-3 px-4">No. Bukti</th>
+              <th class="py-3 px-4">Nama Karyawan</th>
+              <th class="py-3 px-4">Periode Kerja</th>
+              <th class="py-3 px-4">Total Kerja</th>
+              <th class="py-3 px-4">Gaji Dibayarkan</th>
+              <th class="py-3 px-4">Tanggal Pembayaran</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100">
+            {settlements.length > 0 ? (
+              settlements.map((s) => (
+                <tr class="hover:bg-slate-50/80 transition-colors">
+                  <td class="py-3 px-4 font-mono font-bold text-slate-700">#PAY-{s.id}</td>
+                  <td class="py-3 px-4">
+                    <div class="font-bold text-slate-900">{s.name}</div>
+                    <div class="text-[10px] text-slate-400">NIK: {s.nik}</div>
+                  </td>
+                  <td class="py-3 px-4 font-medium text-slate-700 whitespace-nowrap">
+                    {s.period_start === s.period_end
+                      ? formatIndonesianDate(s.period_start, true)
+                      : `${formatIndonesianDate(s.period_start, false)} s/d ${formatIndonesianDate(s.period_end, false)}`}
+                  </td>
+                  <td class="py-3 px-4 capitalize font-semibold text-slate-800">
+                    {s.total_units} {s.scheme === 'per_jam' ? 'Jam' : s.scheme === 'harian' ? 'Hari' : s.scheme === 'mingguan' ? 'Minggu' : 'Bulan'}
+                  </td>
+                  <td class="py-3 px-4 font-bold text-slate-900 text-sm">{formatRupiah(s.amount_paid)}</td>
+                  <td class="py-3 px-4 text-slate-500 whitespace-nowrap">{formatIndonesianDate(s.settled_at)}</td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colspan="6" class="py-6 text-center text-slate-400">
+                  Belum ada riwayat pembayaran gaji.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script is:inline>
+    let currentStatus = 'hari_ini_bayar';
+    let currentScheme = 'all';
+
+    window.filterStatus = function(status, btnEl) {
+      currentStatus = status;
+      document.querySelectorAll('.status-tab').forEach((b) => {
+        b.classList.remove('bg-indigo-600', 'text-white', 'shadow-sm');
+        b.classList.add('bg-white', 'text-slate-700', 'border', 'border-slate-200');
+      });
+      if (btnEl) {
+        btnEl.classList.remove('bg-white', 'text-slate-700', 'border', 'border-slate-200');
+        btnEl.classList.add('bg-indigo-600', 'text-white', 'shadow-sm');
+      }
+      applyFilters();
+    };
+
+    window.applyFilters = function() {
+      const schemeSelect = document.getElementById('schemeFilter');
+      if (schemeSelect) currentScheme = schemeSelect.value;
+
+      const empSelect = document.getElementById('empFilter');
+      const searchInput = document.getElementById('searchFilter');
+      const empVal = empSelect ? empSelect.value : '';
+      const searchVal = searchInput ? searchInput.value.toLowerCase().trim() : '';
+
+      const rows = document.querySelectorAll('.payroll-row');
+      let totalVisibleItems = 0;
+      const visibleCountByEmp = new Map();
+
+      rows.forEach((r) => {
+        const rowStatus = r.dataset.status;
+        const rowScheme = r.dataset.scheme;
+        const rowEmpId = r.dataset.empId;
+        const rowName = r.dataset.empName || '';
+
+        const matchStatus = currentStatus === 'all' || rowStatus === currentStatus;
+        const matchScheme = currentScheme === 'all' || rowScheme === currentScheme;
+        const matchEmp = !empVal || rowEmpId === empVal;
+        const matchSearch = !searchVal || rowName.includes(searchVal);
+
+        if (matchStatus && matchScheme && matchEmp && matchSearch) {
+          r.style.display = '';
+          totalVisibleItems++;
+          visibleCountByEmp.set(rowEmpId, (visibleCountByEmp.get(rowEmpId) || 0) + 1);
+        } else {
+          r.style.display = 'none';
+        }
+      });
+
+      // Perbarui heading karyawan: hanya tampil jika datanya lebih dari 1!
+      const headerRows = document.querySelectorAll('.group-header-row');
+      headerRows.forEach((h) => {
+        const empId = h.dataset.empId;
+        const count = visibleCountByEmp.get(empId) || 0;
+        if (count > 1) {
+          h.style.display = '';
+          const countEl = h.querySelector('.group-count');
+          if (countEl) countEl.innerText = `${count} Tagihan`;
+        } else {
+          h.style.display = 'none';
+        }
+      });
+
+      const countEl = document.getElementById('visibleRowCount');
+      if (countEl) countEl.innerText = totalVisibleItems;
+
+      const emptyEl = document.getElementById('emptyFilterMsg');
+      if (emptyEl) {
+        emptyEl.style.display = totalVisibleItems === 0 ? '' : 'none';
+      }
+    };
+
+    window.settlePayroll = async function (empId, empName, scheme, amount, rate, units, periodStart, periodEnd) {
+      if (amount <= 0) {
+        alert('Nominal gaji masih Rp 0.');
+        return;
+      }
+
+      const formatted = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(amount);
+      const periodText = periodStart === periodEnd ? periodStart : `${periodStart} s/d ${periodEnd}`;
+      if (!confirm(`Konfirmasi pembayaran gaji untuk ${empName}?\nPeriode: ${periodText}\nNominal: ${formatted}`)) {
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/payroll/settle', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            employee_id: empId,
+            scheme: scheme,
+            total_units: units,
+            rate: rate,
+            amount_paid: amount,
+            period_start: periodStart,
+            period_end: periodEnd,
+            notes: `Pembayaran gaji untuk ${empName} (${periodText})`,
+          }),
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          if (window.showToast) window.showToast(`Gaji ${empName} berhasil dibayarkan!`);
+          setTimeout(() => window.location.reload(), 1000);
+        } else {
+          alert(data.error || 'Gagal memproses pembayaran');
+        }
+      } catch (e) {
+        alert('Gagal menghubungi server');
+      }
+    };
+
+    applyFilters();
+    document.addEventListener('DOMContentLoaded', applyFilters);
+  </script>
+</Layout>

@@ -1,0 +1,208 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { generateHourlyToken, generateQrSvg, getSecondsRemainingInHour } from '../lib/qr';
+import { queryAll } from '../lib/db';
+import type { AttendanceRecord } from '../lib/types';
+import { formatIndonesianDate } from '../lib/payroll';
+
+const { token, expiresAt } = generateHourlyToken(0);
+const qrSvg = await generateQrSvg(token);
+const secondsRemaining = getSecondsRemainingInHour();
+
+// Fetch recent attendance today
+const todayStr = new Date().toISOString().split('T')[0];
+const recentAttendance = await queryAll<AttendanceRecord & { name: string; nik: string }>(
+  `SELECT a.*, e.name, e.nik 
+   FROM attendance a
+   JOIN employees e ON a.employee_id = e.id
+   WHERE a.date = ?
+   ORDER BY a.id DESC LIMIT 8`,
+  [todayStr]
+);
+---
+
+<Layout title="Presensi Karyawan" activeNav="home">
+  <div class="max-w-4xl mx-auto px-4 sm:px-6 py-8 sm:py-10">
+    <!-- Header -->
+    <div class="text-center max-w-xl mx-auto mb-8">
+      <h1 class="text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight">
+        Absen Karyawan
+      </h1>
+      <p class="mt-2 text-slate-600 text-sm sm:text-base">
+        Arahkan kamera HP ke barcode di bawah untuk absen masuk atau pulang.
+      </p>
+    </div>
+
+    <!-- QR Code Card -->
+    <div class="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200/80 shadow-sm mb-12">
+      <div class="flex items-center justify-between pb-5 border-b border-slate-100">
+        <div class="flex items-center gap-2">
+          <span class="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+          <h2 class="text-base font-bold text-slate-900">Barcode Absen</h2>
+        </div>
+        <div class="flex items-center gap-2 text-xs">
+          <span class="text-slate-400">Ganti dalam:</span>
+          <span id="countdown-display" class="font-mono font-bold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-lg border border-indigo-100">
+            --:--
+          </span>
+        </div>
+      </div>
+
+      <div class="flex flex-col sm:flex-row items-center justify-center gap-6 sm:gap-10 py-6">
+        <!-- QR Code Container -->
+        <div class="p-4 bg-white rounded-2xl border-2 border-slate-100 shadow-sm flex items-center justify-center">
+          <div id="qr-container" class="w-60 h-60 flex items-center justify-center">
+            <div set:html={qrSvg} />
+          </div>
+        </div>
+
+        <!-- Easy Step-by-Step Instructions -->
+        <div class="space-y-4 text-left max-w-xs">
+          <div class="space-y-2.5 text-xs text-slate-700">
+            <div class="flex items-start gap-2.5">
+              <span class="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center flex-shrink-0 text-[11px]">1</span>
+              <span>Buka kamera HP atau menu absen karyawan.</span>
+            </div>
+            <div class="flex items-start gap-2.5">
+              <span class="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center flex-shrink-0 text-[11px]">2</span>
+              <span>Arahkan ke kotak barcode ini.</span>
+            </div>
+            <div class="flex items-start gap-2.5">
+              <span class="w-5 h-5 rounded-full bg-emerald-100 text-emerald-700 font-bold flex items-center justify-center flex-shrink-0 text-[11px]">3</span>
+              <span>Absen otomatis tersimpan.</span>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            id="btn-refresh-qr"
+            class="w-full px-4 py-2.5 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition"
+          >
+            Muat Ulang Barcode
+          </button>
+        </div>
+      </div>
+
+      <div class="pt-4 border-t border-slate-100 flex items-center justify-between text-xs text-slate-400">
+        <span>Hari ini: <strong class="text-slate-700">{formatIndonesianDate(todayStr)}</strong></span>
+        <span>Berlaku sampai pukul <strong id="expires-display" class="text-slate-700">{new Date(expiresAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</strong></span>
+      </div>
+    </div>
+
+    <!-- Daftar Hadir Hari Ini -->
+    <div class="bg-white rounded-3xl p-6 sm:p-7 border border-slate-200/80 shadow-sm">
+      <div class="flex items-center justify-between mb-5 pb-4 border-b border-slate-100">
+        <div>
+          <h3 class="text-base font-bold text-slate-900">Daftar Hadir Hari Ini</h3>
+          <p class="text-xs text-slate-500">Karyawan yang sudah absen hari ini</p>
+        </div>
+        <span class="text-xs px-3 py-1 rounded-full bg-slate-100 text-slate-600 font-medium">
+          {recentAttendance.length} Karyawan
+        </span>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse text-xs">
+          <thead>
+            <tr class="border-b border-slate-100 text-slate-400 font-semibold uppercase tracking-wider">
+              <th class="py-3 px-3">Nama Karyawan</th>
+              <th class="py-3 px-3">Jam Masuk</th>
+              <th class="py-3 px-3">Jam Pulang</th>
+              <th class="py-3 px-3">Total Jam</th>
+              <th class="py-3 px-3">Status</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100" id="live-attendance-tbody">
+            {recentAttendance.length > 0 ? (
+              recentAttendance.map((row) => (
+                <tr class="hover:bg-slate-50/80 transition-colors">
+                  <td class="py-3 px-3">
+                    <div class="font-bold text-slate-900">{row.name}</div>
+                    <div class="text-[11px] text-slate-400">NIK: {row.nik}</div>
+                  </td>
+                  <td class="py-3 px-3 font-mono font-medium text-slate-700">{row.check_in}</td>
+                  <td class="py-3 px-3 font-mono font-medium text-slate-700">{row.check_out || 'Belum Pulang'}</td>
+                  <td class="py-3 px-3 font-medium text-slate-700">
+                    {row.duration_minutes > 0 ? `${(row.duration_minutes / 60).toFixed(1)} jam` : 'Sedang Kerja'}
+                  </td>
+                  <td class="py-3 px-3 whitespace-nowrap">
+                    <span
+                      class={`inline-flex items-center px-2 py-0.5 rounded-full font-semibold text-[10px] whitespace-nowrap ${
+                        row.status === 'hadir'
+                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                          : 'bg-amber-50 text-amber-700 border border-amber-200'
+                      }`}
+                    >
+                      {row.status === 'hadir' ? 'Tepat Waktu' : 'Terlambat'}
+                    </span>
+                  </td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colspan="5" class="py-8 text-center text-slate-400">
+                  Belum ada yang absen hari ini.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Countdown & QR Auto-refresh -->
+  <script is:inline define:vars={{ initialSeconds: secondsRemaining }}>
+    let secondsLeft = initialSeconds;
+
+    function formatTime(secs) {
+      const m = Math.floor(secs / 60);
+      const s = secs % 60;
+      return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    }
+
+    const countdownEl = document.getElementById('countdown-display');
+
+    function tick() {
+      if (countdownEl) {
+        countdownEl.textContent = formatTime(secondsLeft);
+      }
+      if (secondsLeft <= 0) {
+        refreshActiveQr();
+        secondsLeft = 3600;
+      } else {
+        secondsLeft--;
+      }
+    }
+
+    setInterval(tick, 1000);
+    tick();
+
+    async function refreshActiveQr() {
+      try {
+        const res = await fetch('/api/attendance/active-qr');
+        const data = await res.json();
+        if (data.token) {
+          const qrContainer = document.getElementById('qr-container');
+          const expiresDisplay = document.getElementById('expires-display');
+          if (qrContainer) qrContainer.innerHTML = data.qrSvg;
+          if (expiresDisplay) {
+            expiresDisplay.textContent = new Date(data.expiresAt).toLocaleTimeString('id-ID', {
+              hour: '2-digit',
+              minute: '2-digit',
+            });
+          }
+          secondsLeft = data.secondsRemaining || 3600;
+          if (window.showToast) window.showToast('Barcode berhasil diperbarui');
+        }
+      } catch (e) {
+        console.error('Gagal memperbarui QR', e);
+      }
+    }
+
+    const refreshBtn = document.getElementById('btn-refresh-qr');
+    if (refreshBtn) {
+      refreshBtn.addEventListener('click', () => refreshActiveQr());
+    }
+  </script>
+</Layout>

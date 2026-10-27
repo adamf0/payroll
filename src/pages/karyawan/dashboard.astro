@@ -1,0 +1,180 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import { getCurrentUser } from '../../lib/auth';
+import { queryOne, queryAll } from '../../lib/db';
+import { computeEmployeeRealtimePayroll, formatRupiah, formatIndonesianDate } from '../../lib/payroll';
+import type { Employee, AttendanceRecord } from '../../lib/types';
+
+const currentUser = await getCurrentUser(Astro.cookies);
+if (!currentUser || currentUser.role !== 'karyawan' || !currentUser.employee_id) {
+  return Astro.redirect('/login');
+}
+
+const employee = await queryOne<Employee>(
+  'SELECT * FROM employees WHERE id = ?',
+  [currentUser.employee_id]
+);
+
+if (!employee) {
+  return Astro.redirect('/login');
+}
+
+const payrollInfo = await computeEmployeeRealtimePayroll(employee);
+
+// Today's attendance
+const todayStr = new Date().toISOString().split('T')[0];
+const todayAttendance = await queryOne<AttendanceRecord>(
+  'SELECT * FROM attendance WHERE employee_id = ? AND date = ?',
+  [employee.id, todayStr]
+);
+
+// Recent 5 attendance logs
+const recentLogs = await queryAll<AttendanceRecord>(
+  `SELECT * FROM attendance WHERE employee_id = ? ORDER BY date DESC, check_in DESC LIMIT 5`,
+  [employee.id]
+);
+---
+
+<Layout title="Beranda Karyawan" activeNav="karyawan-dashboard">
+  <div class="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+    <!-- Welcome Card -->
+    <div class="bg-gradient-to-r from-slate-900 to-indigo-950 rounded-3xl p-6 sm:p-7 text-white shadow-md mb-6">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <span class="text-xs font-semibold text-indigo-300 block mb-1">
+            Selamat Datang
+          </span>
+          <h1 class="text-2xl sm:text-3xl font-extrabold tracking-tight">Halo, {employee.name}</h1>
+          <p class="text-xs text-slate-300 mt-1">
+            NIK: {employee.nik} • Gaji {employee.scheme.replace('_', ' ')}
+          </p>
+        </div>
+
+        <a
+          href="/karyawan/presensi"
+          class="px-5 py-3 rounded-2xl bg-white text-slate-900 font-bold text-xs hover:bg-slate-100 transition shadow self-start sm:self-auto flex items-center gap-1.5"
+        >
+          <span>Absen Sekarang</span>
+          <span>&rarr;</span>
+        </a>
+      </div>
+    </div>
+
+    <!-- 3 Simple Info Cards -->
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+      <!-- Status Absen Hari Ini -->
+      <div class="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
+        <div>
+          <span class="text-xs text-slate-400 font-medium block mb-2">Absen Hari Ini</span>
+          {todayAttendance ? (
+            <div>
+              <div class="text-base font-bold text-slate-900 flex items-center gap-2">
+                <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                <span>Masuk: {todayAttendance.check_in}</span>
+              </div>
+              <p class="text-xs text-slate-500 mt-1">
+                {todayAttendance.check_out ? `Pulang: ${todayAttendance.check_out}` : 'Sedang bekerja'}
+              </p>
+            </div>
+          ) : (
+            <div>
+              <div class="text-base font-bold text-amber-600 flex items-center gap-2">
+                <span class="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
+                <span>Belum Absen Masuk</span>
+              </div>
+              <p class="text-xs text-slate-500 mt-1">Tekan tombol untuk absen sekarang</p>
+            </div>
+          )}
+        </div>
+        <div class="mt-4 pt-3 border-t border-slate-100">
+          <a href="/karyawan/presensi" class="text-xs font-semibold text-indigo-600 hover:text-indigo-800">
+            Buka Menu Absen &rarr;
+          </a>
+        </div>
+      </div>
+
+      <!-- Gaji Berjalan -->
+      <div class="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
+        <div>
+          <div class="flex items-center justify-between text-xs text-slate-400 mb-2">
+            <span>Gaji Berjalan Saya</span>
+            <span class="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 font-semibold text-[10px] capitalize">
+              Gaji {employee.scheme.replace('_', ' ')}
+            </span>
+          </div>
+          <div class="text-2xl font-extrabold text-indigo-600">{payrollInfo.currency_formatted}</div>
+          <p class="text-xs text-slate-500 mt-1">Terkumpul periode ini</p>
+        </div>
+        <div class="mt-4 pt-3 border-t border-slate-100">
+          <a href="/karyawan/payroll" class="text-xs font-semibold text-indigo-600 hover:text-indigo-800">
+            Lihat Rincian Gaji &rarr;
+          </a>
+        </div>
+      </div>
+
+      <!-- Jadwal Gajian -->
+      <div class="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
+        <div>
+          <span class="text-xs text-slate-400 font-medium block mb-2">Jadwal Gajian Berikutnya</span>
+          <div class="text-lg font-extrabold text-slate-900">{formatIndonesianDate(payrollInfo.next_payday)}</div>
+          <p class="text-xs font-semibold text-emerald-600 mt-1">
+            {payrollInfo.days_until_payday <= 0 ? 'Hari Ini / Siap Cair' : payrollInfo.days_until_payday + ' hari lagi'}
+          </p>
+        </div>
+        <div class="mt-4 pt-3 border-t border-slate-100 text-[11px] text-slate-400">
+          Gaji dibayar tepat waktu
+        </div>
+      </div>
+    </div>
+
+    <!-- Riwayat Absen Terbaru -->
+    <div class="bg-white rounded-3xl border border-slate-200/80 shadow-sm p-5 sm:p-6">
+      <div class="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
+        <div>
+          <h2 class="text-base font-bold text-slate-900">Riwayat Absen Terakhir</h2>
+          <p class="text-xs text-slate-500">Catatan jam kerja Anda</p>
+        </div>
+        <a href="/karyawan/presensi" class="text-xs font-semibold text-indigo-600 hover:text-indigo-800">
+          Lihat Semua &rarr;
+        </a>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse text-xs">
+          <thead>
+            <tr class="bg-slate-50/60 border-b border-slate-100 text-slate-400 font-semibold uppercase tracking-wider">
+              <th class="py-3 px-3">Hari & Tanggal</th>
+              <th class="py-3 px-3">Jam Masuk</th>
+              <th class="py-3 px-3">Jam Pulang</th>
+              <th class="py-3 px-3">Lama Kerja</th>
+              <th class="py-3 px-3">Status</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100">
+            {recentLogs.map((log) => (
+              <tr class="hover:bg-slate-50/80 transition-colors">
+                <td class="py-3 px-3 font-semibold text-slate-800 whitespace-nowrap">{formatIndonesianDate(log.date)}</td>
+                <td class="py-3 px-3 font-mono text-slate-700">{log.check_in}</td>
+                <td class="py-3 px-3 font-mono text-slate-700">{log.check_out || 'Belum Pulang'}</td>
+                <td class="py-3 px-3 font-bold text-slate-900">
+                  {log.duration_minutes > 0 ? `${(log.duration_minutes / 60).toFixed(1)} jam` : 'Sedang Kerja'}
+                </td>
+                <td class="py-3 px-3 whitespace-nowrap">
+                  <span
+                    class={`inline-flex items-center px-2 py-0.5 rounded-full font-semibold text-[10px] whitespace-nowrap ${
+                      log.status === 'hadir'
+                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                        : 'bg-amber-50 text-amber-700 border border-amber-200'
+                    }`}
+                  >
+                    {log.status === 'hadir' ? 'Tepat Waktu' : 'Terlambat'}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</Layout>

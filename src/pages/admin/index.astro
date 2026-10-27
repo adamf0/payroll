@@ -1,0 +1,170 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import { getCurrentUser } from '../../lib/auth';
+import { queryAll, queryOne } from '../../lib/db';
+import { computeAllRealtimePayroll, formatRupiah, formatIndonesianDate } from '../../lib/payroll';
+import type { Employee, AttendanceRecord } from '../../lib/types';
+
+const currentUser = await getCurrentUser(Astro.cookies);
+if (!currentUser || currentUser.role !== 'admin') {
+  return Astro.redirect('/login');
+}
+
+// 1. Employee Stats
+const totalEmployees = (await queryOne<{ count: number }>('SELECT COUNT(*) as count FROM employees WHERE is_active = 1'))?.count || 0;
+
+// 2. Today's Presence Stats
+const todayStr = new Date().toISOString().split('T')[0];
+const todayAttendance = await queryAll<AttendanceRecord & { name: string; nik: string; scheme: string }>(
+  `SELECT a.*, e.name, e.nik, e.scheme 
+   FROM attendance a
+   JOIN employees e ON a.employee_id = e.id
+   WHERE a.date = ?
+   ORDER BY a.id DESC`,
+  [todayStr]
+);
+const presentTodayCount = todayAttendance.length;
+const presencePercentage = totalEmployees > 0 ? Math.round((presentTodayCount / totalEmployees) * 100) : 0;
+
+// 3. Realtime Accrued Payroll Stats
+const payrollItems = await computeAllRealtimePayroll();
+const totalAccruedPayroll = payrollItems.reduce((acc, item) => acc + item.accrued_amount, 0);
+const duePayrollCount = payrollItems.filter((item) => item.is_due).length;
+---
+
+<Layout title="Ringkasan Kantor" activeNav="admin-dashboard">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+    <!-- Top Welcome Bar -->
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+      <div>
+        <h1 class="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
+          Ringkasan Kantor
+        </h1>
+        <p class="text-xs sm:text-sm text-slate-500 mt-1">
+          Informasi kehadiran karyawan dan perkiraan gaji yang terkumpul.
+        </p>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <a
+          href="/admin/payroll"
+          class="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs transition shadow-sm"
+        >
+          Kelola Gaji Karyawan &rarr;
+        </a>
+      </div>
+    </div>
+
+    <!-- 4 Simple Info Cards -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+      <!-- Total Karyawan -->
+      <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm">
+        <span class="text-xs text-slate-400 font-medium block">Total Karyawan</span>
+        <div class="text-2xl font-extrabold text-slate-900 mt-1">{totalEmployees} Orang</div>
+        <span class="text-[11px] text-slate-400 mt-1 block">Semua aktif bekerja</span>
+      </div>
+
+      <!-- Hadir Hari Ini -->
+      <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm">
+        <span class="text-xs text-slate-400 font-medium block">Hadir Hari Ini</span>
+        <div class="text-2xl font-extrabold text-slate-900 mt-1">{presentTodayCount} Orang</div>
+        <span class="text-[11px] text-emerald-600 font-medium mt-1 block">
+          {presencePercentage}% hadir ({formatIndonesianDate(todayStr)})
+        </span>
+      </div>
+
+      <!-- Total Gaji Berjalan -->
+      <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm">
+        <span class="text-xs text-slate-400 font-medium block">Gaji Berjalan Bulan Ini</span>
+        <div class="text-2xl font-extrabold text-indigo-600 mt-1">{formatRupiah(totalAccruedPayroll)}</div>
+        <span class="text-[11px] text-slate-400 mt-1 block">Akumulasi sampai hari ini</span>
+      </div>
+
+      <!-- Siap Bayar -->
+      <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm">
+        <span class="text-xs text-slate-400 font-medium block">Gaji Siap Bayar</span>
+        <div class="text-2xl font-extrabold text-slate-900 mt-1">{duePayrollCount} Karyawan</div>
+        <span class="text-[11px] text-slate-400 mt-1 block">Jatuh tempo gajian hari ini</span>
+      </div>
+    </div>
+
+    <!-- 2 Column Section: Gaji Berjalan & Kehadiran Hari Ini -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+      <!-- Gaji Berjalan (7 cols) -->
+      <div class="lg:col-span-7 bg-white rounded-3xl border border-slate-200/80 shadow-sm p-6">
+        <div class="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
+          <div>
+            <h2 class="text-sm font-bold text-slate-900">Gaji Berjalan Karyawan</h2>
+            <p class="text-xs text-slate-500">Gaji terkumpul yang akan dibayarkan</p>
+          </div>
+          <a href="/admin/payroll" class="text-xs font-semibold text-indigo-600 hover:text-indigo-800">
+            Lihat Semua &rarr;
+          </a>
+        </div>
+
+        <div class="space-y-2.5">
+          {payrollItems.map((item) => (
+            <div class="p-3 rounded-2xl border border-slate-100 bg-slate-50/70 flex items-center justify-between hover:bg-slate-50 transition">
+              <div>
+                <div class="text-xs font-bold text-slate-900">{item.employee.name}</div>
+                <div class="text-[11px] text-slate-400">
+                  NIK: {item.employee.nik} • Gaji {item.employee.scheme.replace('_', ' ')}
+                </div>
+              </div>
+
+              <div class="text-right">
+                <div class="text-xs font-bold text-slate-900">{item.currency_formatted}</div>
+                <div class="text-[10px] text-slate-400">
+                  {item.days_until_payday <= 0 ? (
+                    <span class="text-emerald-600 font-bold">Siap Bayar</span>
+                  ) : (
+                    <span>Gajian {item.days_until_payday} hari lagi</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <!-- Kehadiran Hari Ini (5 cols) -->
+      <div class="lg:col-span-5 bg-white rounded-3xl border border-slate-200/80 shadow-sm p-6">
+        <div class="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
+          <div>
+            <h2 class="text-sm font-bold text-slate-900">Yang Sudah Hadir Hari Ini</h2>
+            <p class="text-xs text-slate-500">Absen masuk hari ini</p>
+          </div>
+          <a href="/admin/presensi" class="text-xs font-semibold text-indigo-600 hover:text-indigo-800">
+            Daftar Hadir &rarr;
+          </a>
+        </div>
+
+        <div class="space-y-2.5">
+          {todayAttendance.length > 0 ? (
+            todayAttendance.map((att) => (
+              <div class="p-3 rounded-2xl border border-slate-100 bg-slate-50/70 flex items-center justify-between">
+                <div>
+                  <div class="text-xs font-bold text-slate-900">{att.name}</div>
+                  <div class="text-[10px] text-slate-400">NIK: {att.nik}</div>
+                </div>
+
+                <div class="text-right">
+                  <span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800">
+                    Masuk {att.check_in}
+                  </span>
+                  <div class="text-[10px] text-slate-400 mt-0.5">
+                    {att.check_out ? `Pulang ${att.check_out}` : 'Sedang Kerja'}
+                  </div>
+                </div>
+              </div>
+            ))
+          ) : (
+            <div class="py-8 text-center text-slate-400 text-xs">
+              Belum ada karyawan yang absen hari ini.
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  </div>
+</Layout>
