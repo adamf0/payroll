@@ -127,10 +127,10 @@ const currentUser = await getCurrentUser(Astro.cookies);
           )}
         </nav>
 
-        <!-- Right Side: User Menu / Login Action -->
-        <div class="flex items-center gap-3">
+        <!-- Right Side: User Menu / Login Action & Hamburger Button -->
+        <div class="flex items-center gap-2 sm:gap-3">
           {currentUser ? (
-            <div class="flex items-center gap-3">
+            <div class="flex items-center gap-2 sm:gap-3">
               <div class="hidden sm:block text-right">
                 <div class="text-sm font-semibold text-slate-800">{currentUser.name}</div>
                 <div class="text-xs text-slate-500 capitalize flex items-center justify-end gap-1">
@@ -140,7 +140,7 @@ const currentUser = await getCurrentUser(Astro.cookies);
               </div>
               <a
                 href="/api/auth/logout"
-                class="px-3 py-1.5 rounded-lg text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition-colors"
+                class="hidden sm:inline-flex px-3 py-1.5 rounded-lg text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition-colors"
               >
                 Keluar
               </a>
@@ -149,13 +149,218 @@ const currentUser = await getCurrentUser(Astro.cookies);
             <div class="flex items-center gap-2">
               <a
                 href="/login"
-                class="px-4 py-2 rounded-xl text-sm font-semibold bg-slate-900 text-white hover:bg-slate-800 transition shadow-sm"
+                class="px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-xl text-xs sm:text-sm font-semibold bg-slate-900 text-white hover:bg-slate-800 transition shadow-sm"
               >
                 Masuk
               </a>
             </div>
           )}
+
+          <!-- Hamburger Button (Mobile Only) -->
+          {currentUser && (
+            <button
+              type="button"
+              id="mobileMenuBtn"
+              onclick="toggleMobileMenu()"
+              class="md:hidden inline-flex items-center justify-center p-2 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
+              aria-label="Menu navigasi"
+              aria-expanded="false"
+            >
+              <svg id="hamburgerIcon" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+              <svg id="closeIcon" class="w-6 h-6 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          )}
         </div>
+      </div>
+
+      <!-- Quick Mobile Navigation Bar (Langsung tampil di mobile untuk akses cepat) -->
+      {currentUser && (
+        <div class="md:hidden border-t border-slate-100 bg-slate-50/90 px-3 py-2 overflow-x-auto flex items-center gap-1.5 scrollbar-none">
+          {currentUser.role === 'admin' && (
+            <>
+              <a
+                href="/admin"
+                class={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
+                  activeNav === 'admin-dashboard'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                Ringkasan
+              </a>
+              <a
+                href="/admin/karyawan"
+                class={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
+                  activeNav === 'admin-karyawan'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                Karyawan
+              </a>
+              <a
+                href="/admin/presensi"
+                class={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
+                  activeNav === 'admin-presensi'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                Daftar Hadir
+              </a>
+              <a
+                href="/admin/payroll"
+                class={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
+                  activeNav === 'admin-payroll'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                Kelola Gaji
+              </a>
+            </>
+          )}
+
+          {currentUser.role === 'karyawan' && (
+            <>
+              <a
+                href="/karyawan/dashboard"
+                class={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
+                  activeNav === 'karyawan-dashboard'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                Beranda
+              </a>
+              <a
+                href="/karyawan/presensi"
+                class={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
+                  activeNav === 'karyawan-presensi'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                Absen Mandiri
+              </a>
+              <a
+                href="/karyawan/payroll"
+                class={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition ${
+                  activeNav === 'karyawan-payroll'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                Gaji & Slip
+              </a>
+            </>
+          )}
+        </div>
+      )}
+
+      <!-- Full Mobile Dropdown Menu -->
+      <div id="mobileMenu" class="hidden md:hidden border-t border-slate-200/80 bg-white px-4 pt-3 pb-5 space-y-1 shadow-lg">
+        {currentUser?.role === 'admin' && (
+          <>
+            <a
+              href="/admin"
+              class={`block px-3.5 py-2.5 rounded-xl text-sm font-semibold transition ${
+                activeNav === 'admin-dashboard'
+                  ? 'bg-indigo-50 text-indigo-700'
+                  : 'text-slate-700 hover:bg-slate-50'
+              }`}
+            >
+              Ringkasan
+            </a>
+            <a
+              href="/admin/karyawan"
+              class={`block px-3.5 py-2.5 rounded-xl text-sm font-semibold transition ${
+                activeNav === 'admin-karyawan'
+                  ? 'bg-indigo-50 text-indigo-700'
+                  : 'text-slate-700 hover:bg-slate-50'
+              }`}
+            >
+              Karyawan
+            </a>
+            <a
+              href="/admin/presensi"
+              class={`block px-3.5 py-2.5 rounded-xl text-sm font-semibold transition ${
+                activeNav === 'admin-presensi'
+                  ? 'bg-indigo-50 text-indigo-700'
+                  : 'text-slate-700 hover:bg-slate-50'
+              }`}
+            >
+              Daftar Hadir
+            </a>
+            <a
+              href="/admin/payroll"
+              class={`block px-3.5 py-2.5 rounded-xl text-sm font-semibold transition ${
+                activeNav === 'admin-payroll'
+                  ? 'bg-indigo-50 text-indigo-700'
+                  : 'text-slate-700 hover:bg-slate-50'
+              }`}
+            >
+              Kelola Gaji
+            </a>
+          </>
+        )}
+
+        {currentUser?.role === 'karyawan' && (
+          <>
+            <a
+              href="/karyawan/dashboard"
+              class={`block px-3.5 py-2.5 rounded-xl text-sm font-semibold transition ${
+                activeNav === 'karyawan-dashboard'
+                  ? 'bg-indigo-50 text-indigo-700'
+                  : 'text-slate-700 hover:bg-slate-50'
+              }`}
+            >
+              Beranda
+            </a>
+            <a
+              href="/karyawan/presensi"
+              class={`block px-3.5 py-2.5 rounded-xl text-sm font-semibold transition ${
+                activeNav === 'karyawan-presensi'
+                  ? 'bg-indigo-50 text-indigo-700'
+                  : 'text-slate-700 hover:bg-slate-50'
+              }`}
+            >
+              Absen Mandiri
+            </a>
+            <a
+              href="/karyawan/payroll"
+              class={`block px-3.5 py-2.5 rounded-xl text-sm font-semibold transition ${
+                activeNav === 'karyawan-payroll'
+                  ? 'bg-indigo-50 text-indigo-700'
+                  : 'text-slate-700 hover:bg-slate-50'
+              }`}
+            >
+              Gaji & Slip
+            </a>
+          </>
+        )}
+
+        {currentUser && (
+          <div class="pt-3 mt-3 border-t border-slate-100 flex items-center justify-between">
+            <div>
+              <div class="text-sm font-bold text-slate-800">{currentUser.name}</div>
+              <div class="text-xs text-slate-500 capitalize flex items-center gap-1">
+                <span class={`inline-block w-2 h-2 rounded-full ${currentUser.role === 'admin' ? 'bg-indigo-600' : 'bg-emerald-500'}`}></span>
+                Role: {currentUser.role}
+              </div>
+            </div>
+            <a
+              href="/api/auth/logout"
+              class="px-3.5 py-2 rounded-xl text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition"
+            >
+              Keluar
+            </a>
+          </div>
+        )}
       </div>
     </header>
 
@@ -168,6 +373,27 @@ const currentUser = await getCurrentUser(Astro.cookies);
     <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none"></div>
 
     <script is:inline>
+      window.toggleMobileMenu = function () {
+        const menu = document.getElementById('mobileMenu');
+        const hamburger = document.getElementById('hamburgerIcon');
+        const close = document.getElementById('closeIcon');
+        const btn = document.getElementById('mobileMenuBtn');
+        if (!menu) return;
+
+        const isHidden = menu.classList.contains('hidden');
+        if (isHidden) {
+          menu.classList.remove('hidden');
+          hamburger?.classList.add('hidden');
+          close?.classList.remove('hidden');
+          btn?.setAttribute('aria-expanded', 'true');
+        } else {
+          menu.classList.add('hidden');
+          hamburger?.classList.remove('hidden');
+          close?.classList.add('hidden');
+          btn?.setAttribute('aria-expanded', 'false');
+        }
+      };
+
       window.showToast = function (message, type = 'success') {
         const container = document.getElementById('toast-container');
         if (!container) return;
