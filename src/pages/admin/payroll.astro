@@ -180,12 +180,23 @@ const settlements = await queryAll<{
 
     <!-- Tabel Gaji Berjalan dengan Heading Pengelompokan Karyawan -->
     <div class="bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden mb-10">
-      <div class="p-4 border-b border-slate-100 flex items-center justify-between">
+      <div class="p-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h2 class="text-sm font-bold text-slate-900">
             Daftar Gaji Karyawan (<span id="visibleRowCount">{countHariIni}</span> Tagihan)
           </h2>
           <span class="text-[11px] text-slate-400">Dikelompokkan per nama karyawan jika tagihan lebih dari 1 baris</span>
+        </div>
+        <!-- Tombol Bayar Batch untuk Tagihan Terpilih -->
+        <div id="batchPayBar" class="hidden items-center gap-2">
+          <button
+            type="button"
+            onclick="payAllSelectedBills()"
+            class="px-3.5 py-1.5 rounded-xl font-bold text-xs bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition flex items-center gap-1.5"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+            <span>Bayar Tagihan Terpilih (<span id="selectedCountText">0</span> Tagihan • <span id="selectedAmountText">Rp 0</span>)</span>
+          </button>
         </div>
       </div>
 
@@ -193,6 +204,15 @@ const settlements = await queryAll<{
         <table class="w-full text-left border-collapse text-xs">
           <thead>
             <tr class="bg-slate-50/60 border-b border-slate-100 text-slate-400 font-semibold uppercase tracking-wider">
+              <th class="py-3 px-3 w-10 text-center">
+                <input
+                  type="checkbox"
+                  id="masterSelectAll"
+                  onchange="toggleMasterSelectAll(this)"
+                  class="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                  title="Pilih seluruh tagihan"
+                />
+              </th>
               <th class="py-3 px-4">Nama Karyawan</th>
               <th class="py-3 px-4">Periode / Tanggal</th>
               <th class="py-3 px-4">Jenis Gaji</th>
@@ -212,13 +232,21 @@ const settlements = await queryAll<{
                     class="group-header-row bg-slate-100/90 border-t-2 border-b border-slate-200"
                     data-group-header="true"
                     data-emp-id={grp.employee.id.toString()}
+                    data-emp-real-name={grp.employee.name}
                     data-scheme={grp.employee.scheme}
                     data-emp-name={grp.employee.name.toLowerCase()}
                     style={grp.items.filter(i => i.statusCategory === 'hari_ini_bayar').length > 1 ? '' : 'display: none;'}
                   >
-                    <td colspan="8" class="py-2.5 px-4">
+                    <td colspan="9" class="py-2.5 px-4">
                       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                        <div class="flex items-center gap-2.5">
+                        <div class="flex items-center gap-3">
+                          <input
+                            type="checkbox"
+                            class="group-checkbox w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                            data-emp-id={grp.employee.id.toString()}
+                            onchange="toggleGroupCheckbox(this)"
+                            title={`Pilih seluruh tagihan ${grp.employee.name}`}
+                          />
                           <span class="w-7 h-7 rounded-full bg-indigo-600 text-white font-bold text-xs flex items-center justify-center shrink-0 shadow-sm">
                             {grp.employee.name.charAt(0)}
                           </span>
@@ -229,9 +257,21 @@ const settlements = await queryAll<{
                             </span>
                           </div>
                         </div>
-                        <div class="text-xs sm:text-right">
-                          <span class="text-slate-500">Total Akumulasi:</span>
-                          <span class="font-extrabold text-indigo-900 text-sm ml-1.5">{formatRupiah(grp.totalAmount)}</span>
+                        <div class="flex items-center gap-3">
+                          <div class="text-xs sm:text-right">
+                            <span class="text-slate-500">Total Akumulasi:</span>
+                            <span class="font-extrabold text-indigo-900 text-sm ml-1.5">{formatRupiah(grp.totalAmount)}</span>
+                          </div>
+                          <!-- Tombol Bayar Group yang muncul ketika checkbox di heading di-check -->
+                          <button
+                            type="button"
+                            id={`btn-bayar-group-${grp.employee.id}`}
+                            onclick={`payGroupBills(${grp.employee.id})`}
+                            class="hidden px-3.5 py-1.5 rounded-xl font-bold text-xs bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition flex items-center gap-1.5 shrink-0"
+                          >
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                            <span>Bayar Tagihan</span>
+                          </button>
                         </div>
                       </div>
                     </td>
@@ -248,6 +288,21 @@ const settlements = await queryAll<{
                     data-emp-name={grp.employee.name.toLowerCase()}
                     style={item.statusCategory === 'hari_ini_bayar' ? '' : 'display: none;'}
                   >
+                    <td class="py-3.5 px-3 w-10 text-center">
+                      <input
+                        type="checkbox"
+                        class="row-checkbox w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                        data-emp-id={grp.employee.id.toString()}
+                        data-emp-name={item.employee.name}
+                        data-scheme={grp.employee.scheme}
+                        data-amount={item.accrued_amount}
+                        data-rate={item.employee.base_rate}
+                        data-units={item.employee.scheme === 'per_jam' ? item.total_hours_worked : item.total_present_days}
+                        data-period-start={item.period_start || ''}
+                        data-period-end={item.period_end || ''}
+                        onchange="onRowCheckboxChange(this)"
+                      />
+                    </td>
                     <td class="py-3.5 px-4">
                       <div class="font-bold text-slate-900 text-sm">{item.employee.name}</div>
                       <div class="text-[11px] text-slate-400">NIK: {item.employee.nik}</div>
@@ -426,6 +481,10 @@ const settlements = await queryAll<{
     let currentStatus = 'hari_ini_bayar';
     let currentScheme = 'all';
 
+    function formatRupiahJs(amount) {
+      return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(amount);
+    }
+
     window.filterStatus = function(status, btnEl) {
       currentStatus = status;
       document.querySelectorAll('.status-tab').forEach((b) => {
@@ -469,6 +528,8 @@ const settlements = await queryAll<{
           visibleCountByEmp.set(rowEmpId, (visibleCountByEmp.get(rowEmpId) || 0) + 1);
         } else {
           r.style.display = 'none';
+          const cb = r.querySelector('.row-checkbox');
+          if (cb) cb.checked = false;
         }
       });
 
@@ -483,6 +544,8 @@ const settlements = await queryAll<{
           if (countEl) countEl.innerText = `${count} Tagihan`;
         } else {
           h.style.display = 'none';
+          const groupCb = h.querySelector('.group-checkbox');
+          if (groupCb) groupCb.checked = false;
         }
       });
 
@@ -492,6 +555,222 @@ const settlements = await queryAll<{
       const emptyEl = document.getElementById('emptyFilterMsg');
       if (emptyEl) {
         emptyEl.style.display = totalVisibleItems === 0 ? '' : 'none';
+      }
+
+      updateAllSelectionUI();
+    };
+
+    window.toggleMasterSelectAll = function(masterEl) {
+      const isChecked = masterEl.checked;
+      const visibleRows = Array.from(document.querySelectorAll('.payroll-row')).filter(r => r.style.display !== 'none');
+      visibleRows.forEach(r => {
+        const cb = r.querySelector('.row-checkbox');
+        if (cb) cb.checked = isChecked;
+      });
+      updateAllSelectionUI();
+    };
+
+    window.toggleGroupCheckbox = function(groupEl) {
+      const empId = groupEl.dataset.empId;
+      const isChecked = groupEl.checked;
+      const visibleRows = Array.from(document.querySelectorAll(`.payroll-row[data-emp-id="${empId}"]`)).filter(r => r.style.display !== 'none');
+      visibleRows.forEach(r => {
+        const cb = r.querySelector('.row-checkbox');
+        if (cb) cb.checked = isChecked;
+      });
+      updateAllSelectionUI();
+    };
+
+    window.onRowCheckboxChange = function() {
+      updateAllSelectionUI();
+    };
+
+    function updateAllSelectionUI() {
+      const visibleRows = Array.from(document.querySelectorAll('.payroll-row')).filter(r => r.style.display !== 'none');
+      const allCheckedRows = visibleRows.filter(r => {
+        const cb = r.querySelector('.row-checkbox');
+        return cb && cb.checked;
+      });
+
+      // Master select all checkbox
+      const masterCb = document.getElementById('masterSelectAll');
+      if (masterCb) {
+        if (visibleRows.length === 0) {
+          masterCb.checked = false;
+          masterCb.indeterminate = false;
+        } else if (allCheckedRows.length === visibleRows.length) {
+          masterCb.checked = true;
+          masterCb.indeterminate = false;
+        } else if (allCheckedRows.length > 0) {
+          masterCb.checked = false;
+          masterCb.indeterminate = true;
+        } else {
+          masterCb.checked = false;
+          masterCb.indeterminate = false;
+        }
+      }
+
+      // Master batch pay button
+      const batchBar = document.getElementById('batchPayBar');
+      const countText = document.getElementById('selectedCountText');
+      const amountText = document.getElementById('selectedAmountText');
+      if (batchBar && countText && amountText) {
+        if (allCheckedRows.length > 0) {
+          batchBar.classList.remove('hidden');
+          batchBar.classList.add('flex');
+          countText.innerText = allCheckedRows.length;
+          const totalAmount = allCheckedRows.reduce((sum, r) => {
+            const cb = r.querySelector('.row-checkbox');
+            return sum + (Number(cb?.dataset.amount) || 0);
+          }, 0);
+          amountText.innerText = formatRupiahJs(totalAmount);
+        } else {
+          batchBar.classList.add('hidden');
+          batchBar.classList.remove('flex');
+        }
+      }
+
+      // Per-group checkbox & inline button states
+      const groupRows = document.querySelectorAll('.group-header-row');
+      groupRows.forEach(h => {
+        const empId = h.dataset.empId;
+        const groupCb = h.querySelector('.group-checkbox');
+        const groupBtn = document.getElementById(`btn-bayar-group-${empId}`);
+
+        const empVisibleRows = visibleRows.filter(r => r.dataset.empId === empId);
+        const empCheckedRows = empVisibleRows.filter(r => {
+          const cb = r.querySelector('.row-checkbox');
+          return cb && cb.checked;
+        });
+
+        if (groupCb) {
+          if (empVisibleRows.length === 0) {
+            groupCb.checked = false;
+            groupCb.indeterminate = false;
+          } else if (empCheckedRows.length === empVisibleRows.length) {
+            groupCb.checked = true;
+            groupCb.indeterminate = false;
+          } else if (empCheckedRows.length > 0) {
+            groupCb.checked = false;
+            groupCb.indeterminate = true;
+          } else {
+            groupCb.checked = false;
+            groupCb.indeterminate = false;
+          }
+        }
+
+        if (groupBtn) {
+          if (empCheckedRows.length > 0) {
+            groupBtn.classList.remove('hidden');
+            const empTotal = empCheckedRows.reduce((sum, r) => {
+              const cb = r.querySelector('.row-checkbox');
+              return sum + (Number(cb?.dataset.amount) || 0);
+            }, 0);
+            groupBtn.innerHTML = `
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+              <span>Bayar (${empCheckedRows.length}) • ${formatRupiahJs(empTotal)}</span>
+            `;
+          } else {
+            groupBtn.classList.add('hidden');
+          }
+        }
+      });
+    }
+
+    window.payGroupBills = async function(empId) {
+      const headerRow = document.querySelector(`.group-header-row[data-emp-id="${empId}"]`);
+      const empName = headerRow ? headerRow.dataset.empRealName : 'Karyawan';
+
+      const visibleRowCbs = Array.from(document.querySelectorAll(`.payroll-row[data-emp-id="${empId}"]`))
+        .filter(r => r.style.display !== 'none')
+        .map(r => r.querySelector('.row-checkbox'))
+        .filter(cb => cb && cb.checked);
+
+      if (visibleRowCbs.length === 0) {
+        alert('Silakan pilih setidaknya satu tagihan untuk dibayarkan.');
+        return;
+      }
+
+      const items = visibleRowCbs.map(cb => ({
+        employee_id: Number(cb.dataset.empId),
+        scheme: cb.dataset.scheme,
+        total_units: Number(cb.dataset.units) || 1,
+        rate: Number(cb.dataset.rate) || 0,
+        amount_paid: Number(cb.dataset.amount) || 0,
+        period_start: cb.dataset.periodStart,
+        period_end: cb.dataset.periodEnd,
+        notes: `Pembayaran ${cb.dataset.scheme} untuk ${empName} (${cb.dataset.periodStart} s/d ${cb.dataset.periodEnd})`,
+      }));
+
+      const totalAmount = items.reduce((acc, it) => acc + it.amount_paid, 0);
+
+      if (!confirm(`Konfirmasi pembayaran ${items.length} tagihan untuk ${empName}?\nTotal Tagihan: ${formatRupiahJs(totalAmount)}`)) {
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/payroll/settle', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ items }),
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          if (window.showToast) window.showToast(`${items.length} tagihan ${empName} berhasil dibayarkan!`);
+          else alert(`${items.length} tagihan ${empName} berhasil dibayarkan!`);
+          setTimeout(() => window.location.reload(), 1000);
+        } else {
+          alert(data.error || 'Gagal memproses pembayaran');
+        }
+      } catch (e) {
+        alert('Gagal menghubungi server');
+      }
+    };
+
+    window.payAllSelectedBills = async function() {
+      const visibleRowCbs = Array.from(document.querySelectorAll('.payroll-row'))
+        .filter(r => r.style.display !== 'none')
+        .map(r => r.querySelector('.row-checkbox'))
+        .filter(cb => cb && cb.checked);
+
+      if (visibleRowCbs.length === 0) {
+        alert('Silakan centang tagihan yang ingin dibayarkan terlebih dahulu.');
+        return;
+      }
+
+      const items = visibleRowCbs.map(cb => ({
+        employee_id: Number(cb.dataset.empId),
+        scheme: cb.dataset.scheme,
+        total_units: Number(cb.dataset.units) || 1,
+        rate: Number(cb.dataset.rate) || 0,
+        amount_paid: Number(cb.dataset.amount) || 0,
+        period_start: cb.dataset.periodStart,
+        period_end: cb.dataset.periodEnd,
+        notes: `Pembayaran ${cb.dataset.scheme} untuk ${cb.dataset.empName} (${cb.dataset.periodStart} s/d ${cb.dataset.periodEnd})`,
+      }));
+
+      const totalAmount = items.reduce((acc, it) => acc + it.amount_paid, 0);
+
+      if (!confirm(`Konfirmasi pembayaran ${items.length} tagihan terpilih?\nTotal Pembayaran: ${formatRupiahJs(totalAmount)}`)) {
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/payroll/settle', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ items }),
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          if (window.showToast) window.showToast(`${items.length} tagihan berhasil dibayarkan!`);
+          else alert(`${items.length} tagihan berhasil dibayarkan!`);
+          setTimeout(() => window.location.reload(), 1000);
+        } else {
+          alert(data.error || 'Gagal memproses pembayaran batch');
+        }
+      } catch (e) {
+        alert('Gagal menghubungi server');
       }
     };
 
