@@ -2,7 +2,6 @@
 import Layout from '../../layouts/Layout.astro';
 import { getCurrentUser } from '../../lib/auth';
 import { queryOne, queryAll } from '../../lib/db';
-import { generateHourlyToken } from '../../lib/qr';
 import type { Employee, AttendanceRecord } from '../../lib/types';
 import { formatIndonesianDate, getJakartaTodayStr } from '../../lib/payroll';
 
@@ -24,8 +23,6 @@ const logs = await queryAll<AttendanceRecord>(
   `SELECT * FROM attendance WHERE employee_id = ? ORDER BY date DESC, check_in DESC LIMIT 30`,
   [employee.id]
 );
-
-const { token: currentToken } = generateHourlyToken(0);
 ---
 
 <Layout title="Absen Mandiri" activeNav="karyawan-presensi">
@@ -90,42 +87,23 @@ const { token: currentToken } = generateHourlyToken(0);
           </div>
 
           <!-- Tombol Kontrol Kamera -->
-          <div class="flex flex-wrap items-center gap-2 mt-4">
+          <div class="mt-4">
             <button
               type="button"
               id="toggle-camera-btn"
-              class="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs transition shadow-sm flex items-center gap-1.5"
+              class="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs transition shadow-sm flex items-center justify-center gap-1.5"
             >
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
               </svg>
               <span>Buka Kamera</span>
             </button>
-
-            <button
-              type="button"
-              id="simulate-scan-btn"
-              class="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs transition border border-slate-200/80"
-            >
-              Ambil Kode Barcode Otomatis
-            </button>
           </div>
         </div>
 
         <!-- Form Konfirmasi Absen -->
         <form id="karyawan-scan-form" class="mt-5 pt-4 border-t border-slate-100 space-y-3">
-          <div>
-            <label class="block text-xs font-semibold text-slate-700 mb-1">
-              Kode Barcode
-            </label>
-            <input
-              type="text"
-              id="qr-token-input"
-              value={currentToken}
-              class="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-mono bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              required
-            />
-          </div>
+          <input type="hidden" id="qr-token-input" value="" />
 
           <button
             type="submit"
@@ -309,7 +287,6 @@ const { token: currentToken } = generateHourlyToken(0);
     const toggleCameraBtn = document.getElementById('toggle-camera-btn');
     const cameraStatusBadge = document.getElementById('camera-status-badge');
     const tokenInput = document.getElementById('qr-token-input');
-    const simulateBtn = document.getElementById('simulate-scan-btn');
     const form = document.getElementById('karyawan-scan-form');
     const feedback = document.getElementById('scan-feedback');
 
@@ -345,7 +322,7 @@ const { token: currentToken } = generateHourlyToken(0);
               if (barcodes.length > 0) {
                 const scannedVal = barcodes[0].rawValue;
                 if (scannedVal && scannedVal.startsWith('FERMI-')) {
-                  tokenInput.value = scannedVal;
+                  if (tokenInput) tokenInput.value = scannedVal;
                   stopCamera();
                   if (window.showToast) window.showToast('Barcode berhasil dibaca!', 'success');
                   submitAttendance(scannedVal);
@@ -353,6 +330,9 @@ const { token: currentToken } = generateHourlyToken(0);
               }
             } catch (err) {}
           }, 350);
+        } else {
+          cameraStatusBadge.textContent = 'Scanner otomatis tidak didukung browser ini';
+          cameraStatusBadge.className = 'text-xs px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold';
         }
       } catch (err) {
         cameraStatusBadge.textContent = 'Kamera tidak dapat diakses';
@@ -391,19 +371,6 @@ const { token: currentToken } = generateHourlyToken(0);
       }
     });
 
-    simulateBtn.addEventListener('click', async () => {
-      try {
-        const res = await fetch('/api/attendance/active-qr');
-        const data = await res.json();
-        if (data && data.token) {
-          tokenInput.value = data.token;
-          if (window.showToast) window.showToast('Kode barcode berhasil diambil!');
-        }
-      } catch (err) {
-        if (window.showToast) window.showToast('Gagal mengambil kode barcode', 'error');
-      }
-    });
-
     async function submitAttendance(token) {
       try {
         const res = await fetch('/api/attendance/scan', {
@@ -432,8 +399,12 @@ const { token: currentToken } = generateHourlyToken(0);
 
     form.addEventListener('submit', (e) => {
       e.preventDefault();
-      const token = tokenInput.value.trim();
-      if (!token) return;
+      const token = tokenInput ? tokenInput.value.trim() : '';
+      if (!token) {
+        if (!stream) startCamera();
+        if (window.showToast) window.showToast('Arahkan kamera ke barcode absen di kantor', 'info');
+        return;
+      }
       submitAttendance(token);
     });
   </script>
