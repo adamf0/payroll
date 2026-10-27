@@ -13,6 +13,47 @@ export const POST: APIRoute = async ({ request, cookies }) => {
 
   try {
     const data = await request.json();
+    const now = new Date();
+    const todayYmd = now.toISOString().split('T')[0];
+
+    // Support batch settlements
+    if (Array.isArray(data.items) && data.items.length > 0) {
+      let settledCount = 0;
+      let totalAmount = 0;
+
+      for (const item of data.items) {
+        const empId = Number(item.employee_id);
+        const amount = Number(item.amount_paid);
+        if (!empId || amount <= 0) continue;
+
+        const pStart = item.period_start || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+        const pEnd = item.period_end || todayYmd;
+        const scheme = item.scheme || 'bulanan';
+        const units = Number(item.total_units) || 1;
+        const rate = Number(item.rate) || amount;
+        const notes = item.notes || `Pembayaran gaji batch (${pStart} s/d ${pEnd})`;
+
+        await execute(
+          `INSERT INTO payroll_settlements (employee_id, period_start, period_end, scheme, total_units, rate, amount_paid, notes)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [empId, pStart, pEnd, scheme, units, rate, amount, notes]
+        );
+
+        settledCount++;
+        totalAmount += amount;
+      }
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          message: `${settledCount} tagihan gaji berhasil dibayarkan!`,
+          settled_count: settledCount,
+          total_amount: totalAmount,
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
     const { employee_id, scheme, total_units, rate, amount_paid, notes } = data;
 
     if (!employee_id || !amount_paid) {
@@ -22,9 +63,8 @@ export const POST: APIRoute = async ({ request, cookies }) => {
       });
     }
 
-    const now = new Date();
     const periodStart = data.period_start || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
-    const periodEnd = data.period_end || now.toISOString().split('T')[0];
+    const periodEnd = data.period_end || todayYmd;
 
     await execute(
       `INSERT INTO payroll_settlements (employee_id, period_start, period_end, scheme, total_units, rate, amount_paid, notes)
