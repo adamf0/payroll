@@ -62,16 +62,6 @@ async function initMariaDbSchema() {
   if (!mysqlPool) return;
 
   const queries = [
-    `CREATE TABLE IF NOT EXISTS users (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      username VARCHAR(64) NULL UNIQUE,
-      email VARCHAR(191) NOT NULL UNIQUE,
-      password VARCHAR(255) NOT NULL,
-      name VARCHAR(191) NOT NULL,
-      role VARCHAR(32) NOT NULL DEFAULT 'karyawan',
-      employee_id INT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )`,
     `CREATE TABLE IF NOT EXISTS employees (
       id INT AUTO_INCREMENT PRIMARY KEY,
       nik VARCHAR(64) NOT NULL UNIQUE,
@@ -83,7 +73,18 @@ async function initMariaDbSchema() {
       payday_rule VARCHAR(32) NOT NULL DEFAULT '25',
       is_active TINYINT(1) NOT NULL DEFAULT 1,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )`,
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS users (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      username VARCHAR(64) NULL UNIQUE,
+      email VARCHAR(191) NOT NULL UNIQUE,
+      password VARCHAR(255) NOT NULL,
+      name VARCHAR(191) NOT NULL,
+      role VARCHAR(32) NOT NULL DEFAULT 'karyawan',
+      employee_id INT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT fk_users_employee FOREIGN KEY (employee_id) REFERENCES employees (id) ON DELETE CASCADE ON UPDATE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
     `CREATE TABLE IF NOT EXISTS attendance (
       id INT AUTO_INCREMENT PRIMARY KEY,
       employee_id INT NOT NULL,
@@ -94,8 +95,9 @@ async function initMariaDbSchema() {
       status VARCHAR(32) NOT NULL DEFAULT 'hadir',
       qr_token VARCHAR(64) NOT NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      INDEX idx_emp_date (employee_id, date)
-    )`,
+      INDEX idx_emp_date (employee_id, date),
+      CONSTRAINT fk_attendance_employee FOREIGN KEY (employee_id) REFERENCES employees (id) ON DELETE CASCADE ON UPDATE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
     `CREATE TABLE IF NOT EXISTS payroll_settlements (
       id INT AUTO_INCREMENT PRIMARY KEY,
       employee_id INT NOT NULL,
@@ -106,8 +108,10 @@ async function initMariaDbSchema() {
       rate DECIMAL(15, 2) NOT NULL,
       amount_paid DECIMAL(15, 2) NOT NULL,
       settled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      notes TEXT NULL
-    )`
+      notes TEXT NULL,
+      INDEX idx_settlements_emp (employee_id),
+      CONSTRAINT fk_settlements_employee FOREIGN KEY (employee_id) REFERENCES employees (id) ON DELETE CASCADE ON UPDATE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`
   ];
 
   for (const q of queries) {
@@ -124,6 +128,36 @@ async function initMariaDbSchema() {
     await mysqlPool.query("ALTER TABLE employees DROP COLUMN email;");
   } catch (err) {
     // Column already dropped or does not exist
+  }
+
+  try {
+    await mysqlPool.query(`
+      ALTER TABLE users ADD CONSTRAINT fk_users_employee
+      FOREIGN KEY (employee_id) REFERENCES employees (id)
+      ON DELETE CASCADE ON UPDATE CASCADE;
+    `);
+  } catch (err) {
+    // FK already exists
+  }
+
+  try {
+    await mysqlPool.query(`
+      ALTER TABLE attendance ADD CONSTRAINT fk_attendance_employee
+      FOREIGN KEY (employee_id) REFERENCES employees (id)
+      ON DELETE CASCADE ON UPDATE CASCADE;
+    `);
+  } catch (err) {
+    // FK already exists
+  }
+
+  try {
+    await mysqlPool.query(`
+      ALTER TABLE payroll_settlements ADD CONSTRAINT fk_settlements_employee
+      FOREIGN KEY (employee_id) REFERENCES employees (id)
+      ON DELETE CASCADE ON UPDATE CASCADE;
+    `);
+  } catch (err) {
+    // FK already exists
   }
 }
 
@@ -620,15 +654,7 @@ async function initSqliteFallback() {
   isUsingMariaDb = false;
 
   sqliteDb.exec(`
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      email TEXT NOT NULL UNIQUE,
-      password TEXT NOT NULL,
-      name TEXT NOT NULL,
-      role TEXT NOT NULL DEFAULT 'karyawan',
-      employee_id INTEGER NULL,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
+    PRAGMA foreign_keys = ON;
     CREATE TABLE IF NOT EXISTS employees (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       nik TEXT NOT NULL UNIQUE,
@@ -641,9 +667,19 @@ async function initSqliteFallback() {
       is_active INTEGER NOT NULL DEFAULT 1,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT NULL UNIQUE,
+      email TEXT NOT NULL UNIQUE,
+      password TEXT NOT NULL,
+      name TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'karyawan',
+      employee_id INTEGER NULL REFERENCES employees(id) ON DELETE CASCADE,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
     CREATE TABLE IF NOT EXISTS attendance (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      employee_id INTEGER NOT NULL,
+      employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
       date TEXT NOT NULL,
       check_in TEXT NOT NULL,
       check_out TEXT NULL,
@@ -654,7 +690,7 @@ async function initSqliteFallback() {
     );
     CREATE TABLE IF NOT EXISTS payroll_settlements (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      employee_id INTEGER NOT NULL,
+      employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
       period_start TEXT NOT NULL,
       period_end TEXT NOT NULL,
       scheme TEXT NOT NULL,
