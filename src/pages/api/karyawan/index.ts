@@ -128,6 +128,7 @@ export const DELETE: APIRoute = async ({ request, cookies }) => {
 
   const url = new URL(request.url);
   const id = url.searchParams.get('id');
+  const action = url.searchParams.get('action') || 'delete';
 
   if (!id) {
     return new Response(JSON.stringify({ error: 'ID karyawan diperlukan' }), {
@@ -136,10 +137,45 @@ export const DELETE: APIRoute = async ({ request, cookies }) => {
     });
   }
 
-  // Deactivate instead of hard delete to preserve audit history
-  await execute('UPDATE employees SET is_active = 0 WHERE id = ?', [id]);
-  return new Response(JSON.stringify({ success: true, message: 'Karyawan berhasil dinonaktifkan' }), {
-    status: 200,
-    headers: { 'Content-Type': 'application/json' },
-  });
+  try {
+    if (action === 'deactivate') {
+      await execute('UPDATE employees SET is_active = 0 WHERE id = ?', [id]);
+      return new Response(JSON.stringify({ success: true, message: 'Karyawan berhasil dinonaktifkan' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (action === 'activate') {
+      await execute('UPDATE employees SET is_active = 1 WHERE id = ?', [id]);
+      return new Response(JSON.stringify({ success: true, message: 'Karyawan berhasil diaktifkan kembali' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Default: permanent delete
+    const emp = await queryOne<Employee>('SELECT name FROM employees WHERE id = ?', [id]);
+    if (!emp) {
+      return new Response(JSON.stringify({ error: 'Karyawan tidak ditemukan' }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    await execute('DELETE FROM users WHERE employee_id = ?', [id]);
+    await execute('DELETE FROM attendance WHERE employee_id = ?', [id]);
+    await execute('DELETE FROM payroll_settlements WHERE employee_id = ?', [id]);
+    await execute('DELETE FROM employees WHERE id = ?', [id]);
+
+    return new Response(JSON.stringify({ success: true, message: `Data karyawan ${emp.name} berhasil dihapus permanen` }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  } catch (err: any) {
+    return new Response(JSON.stringify({ error: err.message || 'Gagal menghapus karyawan' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
 };

@@ -132,14 +132,28 @@ const employees = await queryAll<EmployeeWithAccount>(`
                   >
                     Edit
                   </button>
-                  {emp.is_active === 1 && (
+                  {emp.is_active === 1 ? (
                     <button
                       onclick={`deactivateEmployee(${emp.id}, '${emp.name}')`}
-                      class="px-2.5 py-1 rounded-lg text-rose-700 hover:bg-rose-50 border border-rose-200 font-semibold transition"
+                      class="px-2.5 py-1 rounded-lg text-amber-700 hover:bg-amber-50 border border-amber-200 font-semibold transition"
                     >
                       Nonaktifkan
                     </button>
+                  ) : (
+                    <button
+                      onclick={`activateEmployee(${emp.id}, '${emp.name}')`}
+                      class="px-2.5 py-1 rounded-lg text-emerald-700 hover:bg-emerald-50 border border-emerald-200 font-semibold transition"
+                    >
+                      Aktifkan
+                    </button>
                   )}
+                  <button
+                    onclick={`deleteEmployee(${emp.id}, '${emp.name}')`}
+                    class="px-2.5 py-1 rounded-lg text-rose-700 hover:bg-rose-50 border border-rose-200 font-semibold transition"
+                    title="Hapus Karyawan Permanen"
+                  >
+                    Hapus
+                  </button>
                 </td>
               </tr>
             ))}
@@ -365,13 +379,44 @@ const employees = await queryAll<EmployeeWithAccount>(`
     window.deactivateEmployee = async function (id, name) {
       if (!confirm(`Apakah Anda yakin ingin menonaktifkan karyawan ${name}?`)) return;
       try {
-        const res = await fetch(`/api/karyawan?id=${id}`, { method: 'DELETE' });
+        const res = await fetch(`/api/karyawan?id=${id}&action=deactivate`, { method: 'DELETE' });
         const data = await res.json();
         if (res.ok && data.success) {
           if (window.showToast) window.showToast(`Karyawan ${name} dinonaktifkan`);
-          setTimeout(() => window.location.reload(), 1000);
+          setTimeout(() => window.location.reload(), 800);
         } else {
           alert(data.error || 'Gagal menonaktifkan karyawan');
+        }
+      } catch (e) {
+        alert('Gagal menghubungi server');
+      }
+    };
+
+    window.activateEmployee = async function (id, name) {
+      try {
+        const res = await fetch(`/api/karyawan?id=${id}&action=activate`, { method: 'DELETE' });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          if (window.showToast) window.showToast(`Karyawan ${name} berhasil diaktifkan kembali`);
+          setTimeout(() => window.location.reload(), 800);
+        } else {
+          alert(data.error || 'Gagal mengaktifkan karyawan');
+        }
+      } catch (e) {
+        alert('Gagal menghubungi server');
+      }
+    };
+
+    window.deleteEmployee = async function (id, name) {
+      if (!confirm(`Apakah Anda yakin ingin menghapus permanen data karyawan ${name}? Seluruh data absensi, slip gaji, dan akun login karyawan ini akan ikut terhapus.`)) return;
+      try {
+        const res = await fetch(`/api/karyawan?id=${id}&action=delete`, { method: 'DELETE' });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          if (window.showToast) window.showToast(data.message || `Karyawan ${name} berhasil dihapus`);
+          setTimeout(() => window.location.reload(), 800);
+        } else {
+          alert(data.error || 'Gagal menghapus data karyawan');
         }
       } catch (e) {
         alert('Gagal menghubungi server');
