@@ -20,9 +20,38 @@ const todayRecord = await queryOne<AttendanceRecord>(
 );
 
 const logs = await queryAll<AttendanceRecord>(
-  `SELECT * FROM attendance WHERE employee_id = ? ORDER BY date DESC, check_in DESC LIMIT 30`,
+  `SELECT * FROM attendance WHERE employee_id = ? ORDER BY date DESC, check_in DESC`,
   [employee.id]
 );
+
+const monthsList = [
+  { val: 'all', label: 'Semua Bulan' },
+  { val: '01', label: 'Januari' },
+  { val: '02', label: 'Februari' },
+  { val: '03', label: 'Maret' },
+  { val: '04', label: 'April' },
+  { val: '05', label: 'Mei' },
+  { val: '06', label: 'Juni' },
+  { val: '07', label: 'Juli' },
+  { val: '08', label: 'Agustus' },
+  { val: '09', label: 'September' },
+  { val: '10', label: 'Oktober' },
+  { val: '11', label: 'November' },
+  { val: '12', label: 'Desember' },
+];
+
+const currentYear = new Date().getFullYear();
+const uniqueYears = Array.from(
+  new Set(
+    logs
+      .map((l) => (typeof l.date === 'string' ? l.date.substring(0, 4) : l.date ? new Date(l.date).getFullYear().toString() : ''))
+      .filter(Boolean)
+  )
+);
+if (!uniqueYears.includes(String(currentYear))) {
+  uniqueYears.push(String(currentYear));
+}
+uniqueYears.sort((a, b) => Number(b) - Number(a));
 ---
 
 <Layout title="Absen Mandiri" activeNav="karyawan-presensi">
@@ -217,14 +246,61 @@ const logs = await queryAll<AttendanceRecord>(
 
     <!-- Riwayat Absen Pribadi -->
     <div class="bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden">
-      <div class="p-5 border-b border-slate-100 flex items-center justify-between">
+      <div class="p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h2 class="text-base font-bold text-slate-900">Riwayat Absen Saya</h2>
           <p class="text-xs text-slate-500">Catatan jam masuk dan pulang Anda</p>
         </div>
-        <span class="text-xs px-3 py-1 rounded-full bg-slate-100 text-slate-600 font-medium">
+        <span id="badge-attendance-count" class="text-xs px-3 py-1 rounded-full bg-slate-100 text-slate-600 font-semibold self-start sm:self-auto">
           {logs.length} Catatan
         </span>
+      </div>
+
+      <!-- Filter Bar Bulan & Tahun -->
+      <div class="p-4 bg-slate-50/70 border-b border-slate-100">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div class="flex flex-wrap items-center gap-2.5 sm:gap-3">
+            <!-- Dropdown Bulan -->
+            <div>
+              <label for="filterMonth" class="block text-[10px] font-semibold text-slate-400 mb-1">Pilih Bulan</label>
+              <select
+                id="filterMonth"
+                onchange="applyAttendanceFilters()"
+                class="px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-medium text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-sm"
+              >
+                {monthsList.map((m) => (
+                  <option value={m.val}>{m.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <!-- Dropdown Tahun -->
+            <div>
+              <label for="filterYear" class="block text-[10px] font-semibold text-slate-400 mb-1">Tahun</label>
+              <select
+                id="filterYear"
+                onchange="applyAttendanceFilters()"
+                class="px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-medium text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-sm"
+              >
+                <option value="all">Semua Tahun</option>
+                {uniqueYears.map((y) => (
+                  <option value={y}>{y}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <!-- Reset Filter Button -->
+          <div class="self-end">
+            <button
+              type="button"
+              onclick="resetAttendanceFilter()"
+              class="px-3.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 text-slate-600 text-xs font-semibold transition shadow-sm cursor-pointer"
+            >
+              Reset Filter
+            </button>
+          </div>
+        </div>
       </div>
 
       <div class="overflow-x-auto">
@@ -238,40 +314,55 @@ const logs = await queryAll<AttendanceRecord>(
               <th class="py-3 px-4">Status</th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-slate-100">
+          <tbody class="divide-y divide-slate-100" id="attendance-table-body">
             {logs.length > 0 ? (
-              logs.map((log) => (
-                <tr class="hover:bg-slate-50/80 transition-colors">
-                  <td class="py-3 px-4 font-semibold text-slate-900 whitespace-nowrap">
-                    {formatIndonesianDate(log.date)}
-                  </td>
-                  <td class="py-3 px-4 font-mono font-medium text-slate-700">{log.check_in}</td>
-                  <td class="py-3 px-4 font-mono font-medium text-slate-700">
-                    {log.check_out || 'Belum Pulang'}
-                  </td>
-                  <td class="py-3 px-4 font-bold text-slate-900">
-                    {log.duration_minutes > 0 ? `${(log.duration_minutes / 60).toFixed(1)} jam` : 'Sedang Kerja'}
-                  </td>
-                  <td class="py-3 px-4 whitespace-nowrap">
-                    <span
-                      class={`inline-flex items-center px-2.5 py-0.5 rounded-full font-semibold text-[10px] whitespace-nowrap ${
-                        log.status === 'hadir'
-                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                          : 'bg-amber-50 text-amber-700 border border-amber-200'
-                      }`}
-                    >
-                      {log.status === 'hadir' ? 'Tepat Waktu' : 'Terlambat'}
-                    </span>
-                  </td>
-                </tr>
-              ))
-            ) : (
-              <tr>
-                <td colspan="5" class="py-8 text-center text-slate-400">
-                  Belum ada catatan absen.
-                </td>
-              </tr>
-            )}
+              logs.map((log) => {
+                const dateStr = typeof log.date === 'string' ? log.date.substring(0, 10) : log.date ? new Date(log.date).toISOString().substring(0, 10) : '';
+                const logYear = dateStr.substring(0, 4);
+                const logMonth = dateStr.substring(5, 7);
+
+                return (
+                  <tr
+                    class="attendance-row hover:bg-slate-50/80 transition-colors"
+                    data-date={dateStr}
+                    data-year={logYear}
+                    data-month={logMonth}
+                  >
+                    <td class="py-3 px-4 font-semibold text-slate-900 whitespace-nowrap">
+                      {formatIndonesianDate(log.date)}
+                    </td>
+                    <td class="py-3 px-4 font-mono font-medium text-slate-700">{log.check_in}</td>
+                    <td class="py-3 px-4 font-mono font-medium text-slate-700">
+                      {log.check_out || 'Belum Pulang'}
+                    </td>
+                    <td class="py-3 px-4 font-bold text-slate-900">
+                      {log.duration_minutes > 0 ? `${(log.duration_minutes / 60).toFixed(1)} jam` : 'Sedang Kerja'}
+                    </td>
+                    <td class="py-3 px-4 whitespace-nowrap">
+                      <span
+                        class={`inline-flex items-center px-2.5 py-0.5 rounded-full font-semibold text-[10px] whitespace-nowrap ${
+                          log.status === 'hadir'
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                            : 'bg-amber-50 text-amber-700 border border-amber-200'
+                        }`}
+                      >
+                        {log.status === 'hadir' ? 'Tepat Waktu' : 'Terlambat'}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })
+            ) : null}
+            <tr id="no-attendance-row" class={logs.length > 0 ? "hidden" : ""}>
+              <td colspan="5" class="py-8 text-center text-slate-400">
+                Belum ada catatan absen.
+              </td>
+            </tr>
+            <tr id="no-attendance-filtered-row" class="hidden">
+              <td colspan="5" class="py-8 text-center text-slate-400">
+                Tidak ada catatan absen pada bulan/tahun yang dipilih.
+              </td>
+            </tr>
           </tbody>
         </table>
       </div>
@@ -407,5 +498,58 @@ const logs = await queryAll<AttendanceRecord>(
       }
       submitAttendance(token);
     });
+
+    window.applyAttendanceFilters = function () {
+      const monthSelect = document.getElementById('filterMonth');
+      const yearSelect = document.getElementById('filterYear');
+      if (!monthSelect || !yearSelect) return;
+
+      const monthVal = monthSelect.value;
+      const yearVal = yearSelect.value;
+
+      const rows = Array.from(document.querySelectorAll('.attendance-row'));
+      let visibleCount = 0;
+
+      rows.forEach((row) => {
+        const rowMonth = row.dataset.month;
+        const rowYear = row.dataset.year;
+
+        let match = true;
+        if (monthVal !== 'all' && rowMonth !== monthVal) {
+          match = false;
+        }
+        if (yearVal !== 'all' && rowYear !== yearVal) {
+          match = false;
+        }
+
+        if (match) {
+          row.style.display = '';
+          visibleCount++;
+        } else {
+          row.style.display = 'none';
+        }
+      });
+
+      const badgeEl = document.getElementById('badge-attendance-count');
+      if (badgeEl) {
+        badgeEl.textContent = `${visibleCount} Catatan`;
+      }
+
+      const emptyFilteredRow = document.getElementById('no-attendance-filtered-row');
+      if (emptyFilteredRow) {
+        emptyFilteredRow.classList.toggle('hidden', visibleCount > 0);
+      }
+    };
+
+    window.resetAttendanceFilter = function () {
+      const monthSelect = document.getElementById('filterMonth');
+      const yearSelect = document.getElementById('filterYear');
+      if (monthSelect) monthSelect.value = 'all';
+      if (yearSelect) yearSelect.value = 'all';
+      window.applyAttendanceFilters();
+    };
+
+    // Initialize filter on page load
+    window.applyAttendanceFilters();
   </script>
 </Layout>
