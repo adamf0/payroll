@@ -14,6 +14,8 @@ const employee = await queryOne<Employee>('SELECT * FROM employees WHERE id = ?'
 if (!employee) return Astro.redirect('/login');
 
 const todayStr = getJakartaTodayStr();
+const currentYearStr = todayStr.substring(0, 4);
+const currentMonthStr = todayStr.substring(5, 7);
 const todayRecord = await queryOne<AttendanceRecord>(
   'SELECT * FROM attendance WHERE employee_id = ? AND date = ?',
   [employee.id, todayStr]
@@ -40,7 +42,6 @@ const monthsList = [
   { val: '12', label: 'Desember' },
 ];
 
-const currentYear = new Date().getFullYear();
 const uniqueYears = Array.from(
   new Set(
     logs
@@ -48,8 +49,8 @@ const uniqueYears = Array.from(
       .filter(Boolean)
   )
 );
-if (!uniqueYears.includes(String(currentYear))) {
-  uniqueYears.push(String(currentYear));
+if (!uniqueYears.includes(currentYearStr)) {
+  uniqueYears.push(currentYearStr);
 }
 uniqueYears.sort((a, b) => Number(b) - Number(a));
 ---
@@ -269,7 +270,7 @@ uniqueYears.sort((a, b) => Number(b) - Number(a));
                 class="px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-medium text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-sm"
               >
                 {monthsList.map((m) => (
-                  <option value={m.val}>{m.label}</option>
+                  <option value={m.val} selected={m.val === currentMonthStr}>{m.label}</option>
                 ))}
               </select>
             </div>
@@ -284,7 +285,7 @@ uniqueYears.sort((a, b) => Number(b) - Number(a));
               >
                 <option value="all">Semua Tahun</option>
                 {uniqueYears.map((y) => (
-                  <option value={y}>{y}</option>
+                  <option value={y} selected={y === currentYearStr}>{y}</option>
                 ))}
               </select>
             </div>
@@ -369,7 +370,7 @@ uniqueYears.sort((a, b) => Number(b) - Number(a));
     </div>
   </div>
 
-  <script is:inline>
+  <script is:inline define:vars={{ defaultMonthVal: currentMonthStr, defaultYearVal: currentYearStr }}>
     let stream = null;
     let scanTimer = null;
     const video = document.getElementById('scanner-video');
@@ -544,8 +545,8 @@ uniqueYears.sort((a, b) => Number(b) - Number(a));
     window.resetAttendanceFilter = function () {
       const monthSelect = document.getElementById('filterMonth');
       const yearSelect = document.getElementById('filterYear');
-      if (monthSelect) monthSelect.value = 'all';
-      if (yearSelect) yearSelect.value = 'all';
+      if (monthSelect) monthSelect.value = defaultMonthVal;
+      if (yearSelect) yearSelect.value = defaultYearVal;
       window.applyAttendanceFilters();
     };
 
