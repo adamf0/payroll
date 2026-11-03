@@ -391,30 +391,30 @@ function formatModuleBadge(module: string) {
           <!-- Meta info grid -->
           <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-50 p-3.5 rounded-2xl border border-slate-200/80 text-xs">
             <div>
-              <span class="text-[10px] font-semibold text-slate-400 block uppercase">Diubah Oleh (Siapa)</span>
+              <span class="text-[10px] font-semibold text-slate-400 block uppercase">Dilakukan Oleh</span>
               <span id="modalActor" class="font-bold text-slate-800"></span>
             </div>
             <div>
-              <span class="text-[10px] font-semibold text-slate-400 block uppercase">Waktu Perubahan (Kapan)</span>
-              <span id="modalTimestamp" class="font-mono font-semibold text-slate-800"></span>
+              <span class="text-[10px] font-semibold text-slate-400 block uppercase">Waktu Kejadian</span>
+              <span id="modalTimestamp" class="font-semibold text-slate-800"></span>
             </div>
             <div>
-              <span class="text-[10px] font-semibold text-slate-400 block uppercase">Target Data Terkait</span>
+              <span class="text-[10px] font-semibold text-slate-400 block uppercase">Data Terkait</span>
               <span id="modalTarget" class="font-bold text-slate-800"></span>
             </div>
           </div>
 
           <!-- Notes callout -->
           <div id="modalNotesBox" class="bg-indigo-50/70 border border-indigo-200/80 rounded-2xl p-3 text-xs text-indigo-900">
-            <span class="font-bold block mb-0.5 text-indigo-950">Keterangan / Catatan:</span>
+            <span class="font-bold block mb-0.5 text-indigo-950">Keterangan:</span>
             <p id="modalNotes" class="text-indigo-800"></p>
           </div>
 
-          <!-- Comparison Table (Diff Sebelum vs Sesudah) -->
+          <!-- Comparison Table (Sebelum vs Sesudah) -->
           <div>
             <div class="flex items-center justify-between mb-2">
               <h4 class="text-xs font-bold text-slate-900 uppercase tracking-wide">
-                Perbandingan Data: Sebelum vs Sesudah
+                Perubahan Informasi
               </h4>
               <span id="diffStateLabel" class="text-[11px] font-semibold text-slate-500"></span>
             </div>
@@ -423,9 +423,9 @@ function formatModuleBadge(module: string) {
               <table class="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr class="bg-slate-100/80 border-b border-slate-200 text-slate-600 font-bold">
-                    <th class="py-2.5 px-3 w-1/3">Parameter / Kolom</th>
-                    <th class="py-2.5 px-3 w-1/3 bg-rose-50/50 text-rose-800">Sebelum (Old)</th>
-                    <th class="py-2.5 px-3 w-1/3 bg-emerald-50/50 text-emerald-800">Sesudah (New)</th>
+                    <th class="py-2.5 px-3 w-1/3">Informasi</th>
+                    <th class="py-2.5 px-3 w-1/3 bg-rose-50/50 text-rose-800">Sebelumnya</th>
+                    <th class="py-2.5 px-3 w-1/3 bg-emerald-50/50 text-emerald-800">Data Baru</th>
                   </tr>
                 </thead>
                 <tbody id="diffTableBody" class="divide-y divide-slate-100">
@@ -434,23 +434,6 @@ function formatModuleBadge(module: string) {
               </table>
             </div>
           </div>
-
-          <!-- Raw JSON Accordion -->
-          <details class="bg-slate-50 rounded-2xl border border-slate-200/80 text-xs">
-            <summary class="px-4 py-2.5 font-bold text-slate-600 cursor-pointer hover:text-slate-900 select-none">
-              Lihat Raw JSON Data
-            </summary>
-            <div class="p-4 pt-1 border-t border-slate-200/80 space-y-3 font-mono text-[11px]">
-              <div>
-                <span class="font-bold text-slate-500 block mb-1">Old Values:</span>
-                <pre id="rawOldJson" class="p-3 bg-slate-900 text-slate-100 rounded-xl overflow-x-auto whitespace-pre-wrap"></pre>
-              </div>
-              <div>
-                <span class="font-bold text-slate-500 block mb-1">New Values:</span>
-                <pre id="rawNewJson" class="p-3 bg-slate-900 text-slate-100 rounded-xl overflow-x-auto whitespace-pre-wrap"></pre>
-              </div>
-            </div>
-          </details>
         </div>
 
         <!-- Modal Footer -->
@@ -487,13 +470,117 @@ function formatModuleBadge(module: string) {
       }
     });
 
-    function formatVal(v) {
-      if (v === null || v === undefined) return '<span class="text-slate-400 italic font-mono">-</span>';
-      if (typeof v === 'boolean') return v ? 'true' : 'false';
-      if (typeof v === 'number') {
-        return `<span class="font-mono font-semibold">${v.toLocaleString('id-ID')}</span>`;
+    const FIELD_LABELS = {
+      id: 'No. Referensi',
+      employee_id: 'ID Karyawan',
+      employee_name: 'Nama Karyawan',
+      name: 'Nama Lengkap',
+      nik: 'NIK Karyawan',
+      position: 'Jabatan / Posisi',
+      amount_requested: 'Nominal Diajukan',
+      amount_approved: 'Nominal Disetujui',
+      amount: 'Nominal',
+      reason: 'Alasan Kebutuhan',
+      status: 'Status',
+      disbursed_at: 'Waktu Pencairan',
+      admin_notes: 'Catatan Admin',
+      approved_by: 'Disetujui Oleh',
+      is_active: 'Status Keaktifan',
+      base_rate: 'Gaji Pokok / Rate',
+      scheme: 'Skema Pembayaran',
+      bank_name: 'Bank',
+      bank_account: 'No. Rekening',
+      phone: 'No. Telepon / WhatsApp',
+      created_at: 'Waktu Dibuat',
+      updated_at: 'Waktu Diperbarui',
+      repaid_at: 'Waktu Pemotongan',
+      remaining_balance: 'Sisa Pinjaman',
+      total_repaid: 'Total Terbayar',
+      notes: 'Keterangan',
+      settlement_id: 'No. Slip Gaji',
+      total_allowances: 'Total Tunjangan',
+      total_deductions: 'Total Potongan',
+      take_home_pay: 'Gaji Bersih Diterima',
+      gross_pay: 'Gaji Kotor',
+      total_hours: 'Total Jam Kerja',
+      cashbon_deduction: 'Potongan Cashbon',
+      start_date: 'Tanggal Mulai',
+      end_date: 'Tanggal Selesai',
+      date: 'Tanggal',
+      check_in: 'Jam Masuk',
+      check_out: 'Jam Pulang',
+      work_hours: 'Durasi Kerja',
+      penalty_late: 'Potongan Terlambat',
+      role: 'Hak Akses',
+      username: 'Nama Akun (Username)',
+      password: 'Kata Sandi',
+    };
+
+    function getFieldLabel(key) {
+      if (FIELD_LABELS[key]) return FIELD_LABELS[key];
+      return key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+    }
+
+    function formatVal(key, v) {
+      if (v === null || v === undefined || v === '') {
+        return '<span class="text-slate-400 italic">-</span>';
       }
-      if (typeof v === 'object') return `<pre class="text-[10px]">${JSON.stringify(v, null, 1)}</pre>`;
+
+      if (key === 'status') {
+        const statusMap = {
+          pending: 'Menunggu Review Admin',
+          approved: 'Disetujui',
+          partial: 'Disetujui Sebagian',
+          rejected: 'Ditolak',
+          settled: 'Lunas Terpotong Gaji',
+          active: 'Aktif',
+          inactive: 'Nonaktif',
+        };
+        const s = String(v).toLowerCase();
+        if (statusMap[s]) {
+          return `<span class="font-semibold text-slate-800">${statusMap[s]}</span>`;
+        }
+      }
+
+      if (typeof v === 'boolean' || key === 'is_active') {
+        const isActive = v === true || v === 1 || v === '1';
+        return `<span class="font-semibold ${isActive ? 'text-emerald-700' : 'text-slate-500'}">${isActive ? 'Aktif' : 'Nonaktif'}</span>`;
+      }
+
+      const moneyKeys = [
+        'amount_requested', 'amount_approved', 'amount', 'base_rate',
+        'remaining_balance', 'total_repaid', 'take_home_pay', 'gross_pay',
+        'total_allowances', 'total_deductions', 'cashbon_deduction', 'penalty_late'
+      ];
+      if (moneyKeys.includes(key)) {
+        const num = Number(v);
+        if (!isNaN(num)) {
+          return `<strong class="text-slate-900 font-bold">Rp ${num.toLocaleString('id-ID')}</strong>`;
+        }
+      }
+
+      if (typeof v === 'number') {
+        return `<span class="font-semibold">${v.toLocaleString('id-ID')}</span>`;
+      }
+
+      if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v)) {
+        try {
+          const d = new Date(v);
+          if (!isNaN(d.getTime())) {
+            return d.toLocaleDateString('id-ID', {
+              day: 'numeric',
+              month: 'long',
+              year: 'numeric',
+              ...(v.includes(':') ? { hour: '2-digit', minute: '2-digit' } : {})
+            });
+          }
+        } catch (e) {}
+      }
+
+      if (typeof v === 'object') {
+        return `<span class="text-slate-700">${JSON.stringify(v)}</span>`;
+      }
+
       return String(v);
     }
 
@@ -502,26 +589,57 @@ function formatModuleBadge(module: string) {
         try {
           const log = JSON.parse(btn.getAttribute('data-log') || '{}');
 
-          document.getElementById('modalLogId').innerText = `#LOG-${log.id}`;
-          document.getElementById('modalTitle').innerText = log.notes || `Log Aktivitas #${log.id}`;
-          document.getElementById('modalActor').innerText = `${log.user_name || 'System'} ${log.user_id ? `(#${log.user_id})` : ''}`;
-          document.getElementById('modalTimestamp').innerText = log.created_at ? log.created_at.replace('T', ' ') : '-';
-          document.getElementById('modalTarget').innerText = log.record_title || `ID #${log.record_id || '-'}`;
+          const actionMap = {
+            create: { label: 'Tambah Karyawan', bg: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+            update: { label: 'Ubah Data', bg: 'bg-amber-50 text-amber-700 border-amber-200' },
+            delete: { label: 'Hapus Data', bg: 'bg-rose-50 text-rose-700 border-rose-200' },
+            activate: { label: 'Aktifkan Kembali', bg: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+            deactivate: { label: 'Nonaktifkan', bg: 'bg-slate-100 text-slate-700 border-slate-300' },
+            account_create: { label: 'Buat Akun Login', bg: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
+            account_update: { label: 'Ubah Akun Login', bg: 'bg-blue-50 text-blue-700 border-blue-200' },
+            request: { label: 'Pengajuan Cashbon', bg: 'bg-purple-50 text-purple-700 border-purple-200' },
+            update_request: { label: 'Ubah Pengajuan Cashbon', bg: 'bg-amber-50 text-amber-700 border-amber-200' },
+            cancel_request: { label: 'Batal Pengajuan Cashbon', bg: 'bg-rose-50 text-rose-700 border-rose-200' },
+            delete_request: { label: 'Hapus Pengajuan Cashbon', bg: 'bg-rose-50 text-rose-700 border-rose-200' },
+            approve: { label: 'Persetujuan Penuh', bg: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+            partial_approve: { label: 'Persetujuan Sebagian', bg: 'bg-amber-50 text-amber-700 border-amber-200' },
+            reject: { label: 'Tolak Cashbon', bg: 'bg-rose-50 text-rose-700 border-rose-200' },
+            disburse: { label: 'Pencairan Dana', bg: 'bg-teal-50 text-teal-700 border-teal-200' },
+            disburse_direct: { label: 'Pencairan Langsung', bg: 'bg-teal-50 text-teal-700 border-teal-200' },
+            settle: { label: 'Pembayaran Gaji', bg: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
+            settle_batch: { label: 'Pembayaran Gaji Massal', bg: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
+            void: { label: 'Pembatalan Slip Gaji', bg: 'bg-rose-50 text-rose-700 border-rose-200' },
+          };
+
+          const moduleMap = {
+            karyawan: { label: 'Karyawan', bg: 'bg-sky-50 text-sky-700 border-sky-200' },
+            cashbon: { label: 'Cashbon', bg: 'bg-purple-50 text-purple-700 border-purple-200' },
+            payroll: { label: 'Kelola Gaji', bg: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
+          };
+
+          const actInfo = actionMap[log.action] || {
+            label: (log.action || '').replace(/_/g, ' '),
+            bg: 'bg-slate-50 text-slate-700 border-slate-200'
+          };
+          const modInfo = moduleMap[log.module] || {
+            label: (log.module || ''),
+            bg: 'bg-slate-50 text-slate-700 border-slate-200'
+          };
+
+          document.getElementById('modalLogId').innerText = `#${log.id}`;
+          document.getElementById('modalTitle').innerText = log.notes || `Riwayat Aktivitas #${log.id}`;
+          document.getElementById('modalActor').innerText = log.user_name || 'Sistem';
+          document.getElementById('modalTimestamp').innerText = log.created_at ? log.created_at.replace('T', ' ').slice(0, 19) : '-';
+          document.getElementById('modalTarget').innerText = log.record_title || `Data #${log.record_id || '-'}`;
           document.getElementById('modalNotes').innerText = log.notes || 'Tidak ada catatan tambahan.';
 
           const moduleBadge = document.getElementById('modalModuleBadge');
-          moduleBadge.innerText = (log.module || '').toUpperCase();
-          moduleBadge.className = 'px-2 py-0.5 rounded text-[10px] font-extrabold uppercase border ' + 
-            (log.module === 'karyawan' ? 'bg-sky-50 text-sky-700 border-sky-200' :
-             log.module === 'cashbon' ? 'bg-purple-50 text-purple-700 border-purple-200' :
-             'bg-indigo-50 text-indigo-700 border-indigo-200');
+          moduleBadge.innerText = modInfo.label;
+          moduleBadge.className = 'px-2 py-0.5 rounded text-[10px] font-extrabold uppercase border ' + modInfo.bg;
 
           const actionBadge = document.getElementById('modalActionBadge');
-          actionBadge.innerText = (log.action || '').replace('_', ' ').toUpperCase();
-          actionBadge.className = 'px-2 py-0.5 rounded text-[10px] font-extrabold uppercase border ' +
-            (log.action === 'delete' || log.action === 'reject' || log.action === 'void' ? 'bg-rose-50 text-rose-700 border-rose-200' :
-             log.action === 'create' || log.action === 'approve' || log.action === 'activate' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
-             'bg-amber-50 text-amber-700 border-amber-200');
+          actionBadge.innerText = actInfo.label;
+          actionBadge.className = 'px-2 py-0.5 rounded text-[10px] font-extrabold uppercase border ' + actInfo.bg;
 
           let oldObj = null;
           let newObj = null;
@@ -536,45 +654,51 @@ function formatModuleBadge(module: string) {
             newObj = log.new_values;
           }
 
-          document.getElementById('rawOldJson').innerText = oldObj ? JSON.stringify(oldObj, null, 2) : 'null (Data belum ada sebelumnya)';
-          document.getElementById('rawNewJson').innerText = newObj ? JSON.stringify(newObj, null, 2) : 'null (Data dihapus / ditiadakan)';
-
           const diffTableBody = document.getElementById('diffTableBody');
           diffTableBody.innerHTML = '';
 
           const diffStateLabel = document.getElementById('diffStateLabel');
 
           if (!oldObj && newObj) {
-            diffStateLabel.innerText = 'Data Baru (Penambahan / Create)';
+            diffStateLabel.innerText = 'Data Baru Ditambahkan';
             diffStateLabel.className = 'text-[11px] font-bold text-emerald-700';
-            Object.keys(newObj).forEach((key) => {
+
+            const keys = Object.keys(newObj).filter((k) => !(k === 'employee_id' && newObj.employee_name));
+
+            keys.forEach((key) => {
               const tr = document.createElement('tr');
               tr.className = 'bg-emerald-50/20';
               tr.innerHTML = `
-                <td class="py-2 px-3 font-mono font-bold text-slate-700">${key}</td>
-                <td class="py-2 px-3 text-slate-400 italic">-</td>
-                <td class="py-2 px-3 font-medium text-emerald-900">${formatVal(newObj[key])}</td>
+                <td class="py-2.5 px-3 font-semibold text-slate-800">${getFieldLabel(key)}</td>
+                <td class="py-2.5 px-3 text-slate-400 italic">-</td>
+                <td class="py-2.5 px-3 font-medium text-emerald-950">${formatVal(key, newObj[key])}</td>
               `;
               diffTableBody.appendChild(tr);
             });
           } else if (oldObj && !newObj) {
-            diffStateLabel.innerText = 'Data Dihapus / Dibatalkan (Delete / Void)';
+            diffStateLabel.innerText = 'Data Telah Dihapus';
             diffStateLabel.className = 'text-[11px] font-bold text-rose-700';
-            Object.keys(oldObj).forEach((key) => {
+
+            const keys = Object.keys(oldObj).filter((k) => !(k === 'employee_id' && oldObj.employee_name));
+
+            keys.forEach((key) => {
               const tr = document.createElement('tr');
               tr.className = 'bg-rose-50/20';
               tr.innerHTML = `
-                <td class="py-2 px-3 font-mono font-bold text-slate-700">${key}</td>
-                <td class="py-2 px-3 font-medium text-rose-900 line-through">${formatVal(oldObj[key])}</td>
-                <td class="py-2 px-3 text-slate-400 italic">-</td>
+                <td class="py-2.5 px-3 font-semibold text-slate-800">${getFieldLabel(key)}</td>
+                <td class="py-2.5 px-3 font-medium text-rose-900 line-through">${formatVal(key, oldObj[key])}</td>
+                <td class="py-2.5 px-3 text-slate-400 italic">-</td>
               `;
               diffTableBody.appendChild(tr);
             });
           } else if (oldObj && newObj) {
-            diffStateLabel.innerText = 'Perubahan Data (Update / Modifikasi)';
+            diffStateLabel.innerText = 'Perubahan Data';
             diffStateLabel.className = 'text-[11px] font-bold text-amber-700';
 
-            const allKeys = Array.from(new Set([...Object.keys(oldObj), ...Object.keys(newObj)]));
+            const rawKeys = Array.from(new Set([...Object.keys(oldObj), ...Object.keys(newObj)]));
+            const hasEmpName = Boolean(oldObj.employee_name || newObj.employee_name);
+            const allKeys = rawKeys.filter((k) => !(k === 'employee_id' && hasEmpName));
+
             allKeys.forEach((key) => {
               const oldV = oldObj[key];
               const newV = newObj[key];
@@ -583,20 +707,20 @@ function formatModuleBadge(module: string) {
               const tr = document.createElement('tr');
               tr.className = isDiff ? 'bg-amber-50/40 font-semibold' : 'opacity-70';
               tr.innerHTML = `
-                <td class="py-2 px-3 font-mono text-slate-700 flex items-center gap-1.5">
+                <td class="py-2.5 px-3 text-slate-800 flex items-center gap-1.5">
                   ${isDiff ? '<span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>' : ''}
-                  ${key}
+                  <span class="${isDiff ? 'font-bold' : 'font-medium'}">${getFieldLabel(key)}</span>
                 </td>
-                <td class="py-2 px-3 ${isDiff ? 'bg-rose-50/60 text-rose-900 font-bold' : 'text-slate-600'}">${formatVal(oldV)}</td>
-                <td class="py-2 px-3 ${isDiff ? 'bg-emerald-50/60 text-emerald-900 font-bold' : 'text-slate-600'}">${formatVal(newV)}</td>
+                <td class="py-2.5 px-3 ${isDiff ? 'bg-rose-50/60 text-rose-950 font-bold' : 'text-slate-600'}">${formatVal(key, oldV)}</td>
+                <td class="py-2.5 px-3 ${isDiff ? 'bg-emerald-50/60 text-emerald-950 font-bold' : 'text-slate-600'}">${formatVal(key, newV)}</td>
               `;
               diffTableBody.appendChild(tr);
             });
           } else {
-            diffStateLabel.innerText = 'Tidak ada snapshot data';
+            diffStateLabel.innerText = 'Tidak ada catatan nilai';
             diffStateLabel.className = 'text-[11px] font-medium text-slate-400';
             const tr = document.createElement('tr');
-            tr.innerHTML = '<td colspan="3" class="py-4 text-center text-slate-400">Tidak ada snapshot nilai sebelum dan sesudah.</td>';
+            tr.innerHTML = '<td colspan="3" class="py-4 text-center text-slate-400">Tidak ada catatan nilai sebelum dan sesudah.</td>';
             diffTableBody.appendChild(tr);
           }
 
