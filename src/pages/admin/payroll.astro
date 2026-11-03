@@ -194,6 +194,35 @@ const settlements = await queryAll<{
             ))}
           </select>
 
+          <!-- Filter Rentang Tanggal -->
+          <div class="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 focus-within:ring-2 focus-within:ring-indigo-500 shadow-sm">
+            <svg class="w-3.5 h-3.5 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+            <input
+              type="date"
+              id="startDateFilter"
+              onchange="applyFilters()"
+              class="text-xs font-medium text-slate-700 bg-transparent focus:outline-none cursor-pointer w-[110px] sm:w-auto"
+              title="Dari Tanggal"
+            />
+            <span class="text-slate-300 text-xs">-</span>
+            <input
+              type="date"
+              id="endDateFilter"
+              onchange="applyFilters()"
+              class="text-xs font-medium text-slate-700 bg-transparent focus:outline-none cursor-pointer w-[110px] sm:w-auto"
+              title="Sampai Tanggal"
+            />
+            <button
+              type="button"
+              id="clearDateBtn"
+              onclick="clearDateFilter()"
+              class="hidden text-slate-400 hover:text-rose-600 text-xs px-1 font-bold"
+              title="Hapus filter tanggal"
+            >
+              ✕
+            </button>
+          </div>
+
           <!-- Cari Nama -->
           <input
             type="text"
@@ -320,6 +349,9 @@ const settlements = await queryAll<{
                     data-status={item.statusCategory}
                     data-scheme={grp.employee.scheme}
                     data-emp-name={grp.employee.name.toLowerCase()}
+                    data-period-start={item.period_start || ''}
+                    data-period-end={item.period_end || ''}
+                    data-period-label={item.period_label.toLowerCase()}
                     style={item.statusCategory === 'hari_ini_bayar' ? '' : 'display: none;'}
                   >
                     <td class="py-3.5 px-3 w-10 text-center">
@@ -826,6 +858,14 @@ const settlements = await queryAll<{
       applyFilters();
     };
 
+    window.clearDateFilter = function() {
+      const s = document.getElementById('startDateFilter');
+      const e = document.getElementById('endDateFilter');
+      if (s) s.value = '';
+      if (e) e.value = '';
+      applyFilters();
+    };
+
     window.applyFilters = function() {
       const schemeSelect = document.getElementById('schemeFilter');
       if (schemeSelect) currentScheme = schemeSelect.value;
@@ -834,6 +874,20 @@ const settlements = await queryAll<{
       const searchInput = document.getElementById('searchFilter');
       const empVal = empSelect ? empSelect.value : '';
       const searchVal = searchInput ? searchInput.value.toLowerCase().trim() : '';
+
+      const startDateInput = document.getElementById('startDateFilter');
+      const endDateInput = document.getElementById('endDateFilter');
+      const startDateVal = startDateInput ? startDateInput.value : '';
+      const endDateVal = endDateInput ? endDateInput.value : '';
+
+      const clearBtn = document.getElementById('clearDateBtn');
+      if (clearBtn) {
+        if (startDateVal || endDateVal) {
+          clearBtn.classList.remove('hidden');
+        } else {
+          clearBtn.classList.add('hidden');
+        }
+      }
 
       const rows = document.querySelectorAll('.payroll-row');
       let totalVisibleItems = 0;
@@ -844,13 +898,27 @@ const settlements = await queryAll<{
         const rowScheme = r.dataset.scheme;
         const rowEmpId = r.dataset.empId;
         const rowName = r.dataset.empName || '';
+        const pStart = r.dataset.periodStart || '';
+        const pEnd = r.dataset.periodEnd || '';
+        const pLabel = r.dataset.periodLabel || '';
 
         const matchStatus = currentStatus === 'all' || rowStatus === currentStatus;
         const matchScheme = currentScheme === 'all' || rowScheme === currentScheme;
         const matchEmp = !empVal || rowEmpId === empVal;
-        const matchSearch = !searchVal || rowName.includes(searchVal);
+        const matchSearch = !searchVal || rowName.includes(searchVal) || pLabel.includes(searchVal);
 
-        if (matchStatus && matchScheme && matchEmp && matchSearch) {
+        let matchDate = true;
+        if (startDateVal && endDateVal) {
+          const minDate = startDateVal <= endDateVal ? startDateVal : endDateVal;
+          const maxDate = startDateVal <= endDateVal ? endDateVal : startDateVal;
+          matchDate = !(pEnd < minDate || pStart > maxDate);
+        } else if (startDateVal) {
+          matchDate = pEnd >= startDateVal;
+        } else if (endDateVal) {
+          matchDate = pStart <= endDateVal;
+        }
+
+        if (matchStatus && matchScheme && matchEmp && matchSearch && matchDate) {
           r.style.display = '';
           totalVisibleItems++;
           visibleCountByEmp.set(rowEmpId, (visibleCountByEmp.get(rowEmpId) || 0) + 1);
