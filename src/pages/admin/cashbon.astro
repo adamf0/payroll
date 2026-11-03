@@ -676,8 +676,8 @@ const employees = await queryAll<{ id: number; nik: string; name: string; positi
       const autoDisburse = document.getElementById('dirAutoDisburse').checked;
       const btn = document.getElementById('dirSubmitBtn');
 
-      if (!empId || !amount) {
-        alert('Lengkapi karyawan dan nominal cashbon');
+      if (!empId || !amount || amount <= 0) {
+        alert('Lengkapi karyawan dan pastikan nominal cashbon lebih besar dari 0');
         return;
       }
 
