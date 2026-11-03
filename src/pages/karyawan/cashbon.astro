@@ -91,16 +91,27 @@ const repayments = await queryAll<{
 <Layout title="Cashbon Mandiri" activeNav="karyawan-cashbon">
   <div class="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
     <!-- Header -->
-    <div class="mb-6">
-      <div class="flex items-center gap-2">
-        <span class="text-xs px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 font-bold border border-indigo-200">
-          Portal Karyawan
-        </span>
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+      <div>
+        <div class="flex items-center gap-2">
+          <span class="text-xs px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 font-bold border border-indigo-200">
+            Portal Karyawan
+          </span>
+        </div>
+        <h1 class="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight mt-1">Cashbon & Pinjaman</h1>
+        <p class="text-xs sm:text-sm text-slate-500 mt-1">
+          Ajukan pinjaman mandiri secara transparan, pantau status persetujuan, dan sisa saldo cicilan penggajian.
+        </p>
       </div>
-      <h1 class="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight mt-1">Cashbon & Pinjaman</h1>
-      <p class="text-xs sm:text-sm text-slate-500 mt-1">
-        Ajukan pinjaman mandiri secara transparan, pantau status persetujuan, dan sisa saldo cicilan penggajian.
-      </p>
+
+      <button
+        type="button"
+        onclick="openApplyCashbonModal()"
+        class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition self-start sm:self-auto cursor-pointer"
+      >
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+        + Ajukan Cashbon Baru
+      </button>
     </div>
 
     <!-- Overview Cards -->
@@ -303,20 +314,90 @@ const repayments = await queryAll<{
     )}
   </div>
 
-  <script is:inline>
-    async function submitApplyCashbon(e) {
-      e.preventDefault();
-      const amount = document.getElementById('applyAmount').value;
-      const reason = document.getElementById('applyReason').value.trim();
-      const btn = document.getElementById('applySubmitBtn');
+  <!-- Modal Ajukan Cashbon Baru -->
+  <div id="applyCashbonModal" class="hidden fixed inset-0 z-50 overflow-y-auto bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl border border-slate-100">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+        <h3 class="text-base font-bold text-slate-900">+ Ajukan Cashbon Baru</h3>
+        <button type="button" onclick="closeApplyCashbonModal()" class="text-slate-400 hover:text-slate-600 text-lg font-bold cursor-pointer">&times;</button>
+      </div>
 
-      if (!amount || !reason) {
-        alert('Lengkapi nominal dan alasan pinjaman');
+      <form onsubmit="submitApplyCashbonModal(event)" class="mt-4 space-y-4">
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1">
+            Nominal yang Diajukan (Rp) <span class="text-rose-500">*</span>
+          </label>
+          <input
+            type="number"
+            id="modalApplyAmount"
+            required
+            min="10000"
+            step="5000"
+            placeholder="Contoh: 300000"
+            class="w-full px-4 py-2.5 rounded-2xl border border-slate-200 text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1">
+            Alasan Kebutuhan <span class="text-rose-500">*</span>
+          </label>
+          <textarea
+            id="modalApplyReason"
+            required
+            rows="2"
+            placeholder="Jelaskan secara singkat keperluan mendesak Anda..."
+            class="w-full px-4 py-2.5 rounded-2xl border border-slate-200 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          ></textarea>
+        </div>
+
+        <div class="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onclick="closeApplyCashbonModal()"
+            class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 transition cursor-pointer"
+          >
+            Batal
+          </button>
+          <button
+            type="submit"
+            id="modalApplySubmitBtn"
+            class="px-5 py-2.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition flex items-center gap-1.5 cursor-pointer"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+            Kirim Pengajuan
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script is:inline>
+    function openApplyCashbonModal() {
+      const modal = document.getElementById('applyCashbonModal');
+      if (modal) modal.classList.remove('hidden');
+      setTimeout(() => document.getElementById('modalApplyAmount')?.focus(), 50);
+    }
+
+    function closeApplyCashbonModal() {
+      const modal = document.getElementById('applyCashbonModal');
+      if (modal) modal.classList.add('hidden');
+    }
+
+    async function sendCashbon(amount, reason, btnEl) {
+      if (!amount || Number(amount) <= 0) {
+        alert('Nominal cashbon harus lebih besar dari 0');
+        return;
+      }
+      if (!reason || !reason.trim()) {
+        alert('Lengkapi alasan pengajuan cashbon');
         return;
       }
 
-      btn.disabled = true;
-      btn.textContent = 'Mengirim Permohonan...';
+      if (btnEl) {
+        btnEl.disabled = true;
+        btnEl.textContent = 'Mengirim Permohonan...';
+      }
 
       try {
         const res = await fetch('/api/cashbon', {
@@ -324,7 +405,8 @@ const repayments = await queryAll<{
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             amount: Number(amount),
-            reason,
+            amount_requested: Number(amount),
+            reason: reason.trim(),
           }),
         });
         const data = await res.json();
@@ -334,9 +416,27 @@ const repayments = await queryAll<{
         setTimeout(() => location.reload(), 600);
       } catch (err) {
         alert(err.message);
-        btn.disabled = false;
-        btn.textContent = 'Kirim Pengajuan Cashbon';
+        if (btnEl) {
+          btnEl.disabled = false;
+          btnEl.textContent = 'Kirim Pengajuan Cashbon';
+        }
       }
+    }
+
+    async function submitApplyCashbon(e) {
+      e.preventDefault();
+      const amount = document.getElementById('applyAmount').value;
+      const reason = document.getElementById('applyReason').value.trim();
+      const btn = document.getElementById('applySubmitBtn');
+      await sendCashbon(amount, reason, btn);
+    }
+
+    async function submitApplyCashbonModal(e) {
+      e.preventDefault();
+      const amount = document.getElementById('modalApplyAmount').value;
+      const reason = document.getElementById('modalApplyReason').value.trim();
+      const btn = document.getElementById('modalApplySubmitBtn');
+      await sendCashbon(amount, reason, btn);
     }
   </script>
 </Layout>

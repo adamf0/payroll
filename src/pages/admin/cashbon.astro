@@ -76,17 +76,6 @@ const employees = await queryAll<{ id: number; nik: string; name: string; positi
           Tinjau permohonan pinjaman karyawan, setujui nominal, pantau pencairan, dan riwayat pelunasan.
         </p>
       </div>
-
-      <div class="flex items-center gap-2">
-        <button
-          type="button"
-          onclick="openDirectCashbonModal()"
-          class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition"
-        >
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-          + Input Cashbon Langsung
-        </button>
-      </div>
     </div>
 
     <!-- Summary Metrics -->
@@ -678,6 +667,7 @@ const employees = await queryAll<{ id: number; nik: string; name: string; positi
           body: JSON.stringify({
             employee_id: Number(empId),
             amount: Number(amount),
+            amount_requested: Number(amount),
             reason,
             direct_disburse: autoDisburse,
           }),

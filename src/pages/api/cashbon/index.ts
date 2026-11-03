@@ -87,13 +87,13 @@ export const POST: APIRoute = async ({ request, cookies }) => {
 
   try {
     const data = await request.json();
-    const { amount_requested, reason, employee_id, direct_disburse } = data;
+    const { employee_id, direct_disburse } = data;
 
     let targetEmpId: number | null = null;
     if (user.role === 'karyawan') {
       targetEmpId = user.employee_id || null;
     } else {
-      targetEmpId = Number(employee_id) || null;
+      targetEmpId = Number(employee_id || data.employee_id) || null;
     }
 
     if (!targetEmpId) {
@@ -103,15 +103,20 @@ export const POST: APIRoute = async ({ request, cookies }) => {
       });
     }
 
-    const amount = Number(amount_requested);
-    if (!amount || amount <= 0) {
+    const rawAmount = data.amount_requested !== undefined && data.amount_requested !== null && data.amount_requested !== ''
+      ? data.amount_requested
+      : data.amount;
+    const amount = Number(rawAmount);
+    if (!amount || isNaN(amount) || amount <= 0) {
       return new Response(JSON.stringify({ error: 'Nominal cashbon harus lebih besar dari 0' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' },
       });
     }
 
-    if (!reason || !reason.trim()) {
+    const rawReason = (typeof data.reason === 'string' ? data.reason : '');
+    const finalReason = rawReason.trim() || (user.role === 'admin' ? 'Input langsung oleh Admin' : '');
+    if (!finalReason) {
       return new Response(JSON.stringify({ error: 'Mohon cantumkan alasan pengajuan cashbon' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' },
@@ -124,7 +129,7 @@ export const POST: APIRoute = async ({ request, cookies }) => {
         `INSERT INTO cashbon_requests 
           (employee_id, amount_requested, amount_approved, reason, status, disbursed_at, admin_notes, approved_by)
          VALUES (?, ?, ?, ?, 'approved', NOW(), 'Input langsung oleh Admin', ?)`,
-        [targetEmpId, amount, amount, reason.trim(), user.id]
+        [targetEmpId, amount, amount, finalReason, user.id]
       );
       return new Response(
         JSON.stringify({ success: true, message: 'Cashbon berhasil dicatat dan dicairkan', id: res.insertId }),
@@ -137,7 +142,7 @@ export const POST: APIRoute = async ({ request, cookies }) => {
       `INSERT INTO cashbon_requests 
         (employee_id, amount_requested, amount_approved, reason, status)
        VALUES (?, ?, 0, ?, 'pending')`,
-      [targetEmpId, amount, reason.trim()]
+      [targetEmpId, amount, finalReason]
     );
 
     return new Response(
