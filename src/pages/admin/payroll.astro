@@ -642,36 +642,33 @@ const settlements = await queryAll<{
               <div>
                 <label class="block text-[11px] font-semibold text-slate-600 mb-1">Tunjangan (Rp)</label>
                 <input
-                  type="number"
+                  type="text"
+                  inputmode="numeric"
                   id="modalAllowance"
-                  min="0"
-                  step="5000"
                   value="0"
-                  oninput="calcModalTotal()"
+                  oninput="formatRupiahInput(this); calcModalTotal()"
                   class="w-full px-2.5 py-1.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                 />
               </div>
               <div>
                 <label class="block text-[11px] font-semibold text-slate-600 mb-1">Upah Lembur (Rp)</label>
                 <input
-                  type="number"
+                  type="text"
+                  inputmode="numeric"
                   id="modalOvertime"
-                  min="0"
-                  step="5000"
                   value="0"
-                  oninput="calcModalTotal()"
+                  oninput="formatRupiahInput(this); calcModalTotal()"
                   class="w-full px-2.5 py-1.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                 />
               </div>
               <div>
                 <label class="block text-[11px] font-semibold text-slate-600 mb-1">Bonus (Rp)</label>
                 <input
-                  type="number"
+                  type="text"
+                  inputmode="numeric"
                   id="modalBonus"
-                  min="0"
-                  step="5000"
                   value="0"
-                  oninput="calcModalTotal()"
+                  oninput="formatRupiahInput(this); calcModalTotal()"
                   class="w-full px-2.5 py-1.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
                 />
               </div>
@@ -691,12 +688,11 @@ const settlements = await queryAll<{
             <div>
               <label class="block text-[11px] font-semibold text-rose-900 mb-1">Potong Cashbon Siklus Ini (Rp)</label>
               <input
-                type="number"
+                type="text"
+                inputmode="numeric"
                 id="modalCashbonDeduction"
-                min="0"
-                step="5000"
                 value="0"
-                oninput="calcModalTotal()"
+                oninput="formatRupiahInput(this); calcModalTotal()"
                 class="w-full px-3 py-1.5 rounded-xl border border-rose-200 text-xs font-bold text-rose-900 bg-white focus:ring-2 focus:ring-rose-500 focus:outline-none"
               />
               <span class="text-[10px] text-rose-600 mt-1 block">
@@ -843,6 +839,29 @@ const settlements = await queryAll<{
 
     function formatRupiahJs(amount) {
       return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(amount);
+    }
+
+    function formatRupiahInput(el) {
+      const cursor = el.selectionStart;
+      const prevLen = el.value.length;
+      const raw = el.value.replace(/\D/g, '');
+      if (!raw) {
+        el.value = '';
+        return;
+      }
+      const formatted = new Intl.NumberFormat('id-ID').format(Number(raw));
+      el.value = formatted;
+      const diff = formatted.length - prevLen;
+      const newPos = Math.max(0, (cursor || 0) + diff);
+      try {
+        el.setSelectionRange(newPos, newPos);
+      } catch (e) {}
+    }
+
+    function getRawNumber(input) {
+      if (!input) return 0;
+      const str = typeof input === 'object' && 'value' in input ? input.value : String(input);
+      return Number(str.replace(/\D/g, '')) || 0;
     }
 
     window.filterStatus = function(status, btnEl) {
@@ -1202,14 +1221,14 @@ const settlements = await queryAll<{
       document.getElementById('modalBaseWageDetail').textContent = `${units} ${unitText} × ${formatRupiahJs(rate)}`;
       document.getElementById('modalBaseWageDisplay').textContent = formatRupiahJs(modalCalculatedBase);
 
-      document.getElementById('modalAllowance').value = fixedAllowance || 0;
-      document.getElementById('modalOvertime').value = 0;
-      document.getElementById('modalBonus').value = 0;
+      document.getElementById('modalAllowance').value = fixedAllowance ? new Intl.NumberFormat('id-ID').format(Number(fixedAllowance)) : '0';
+      document.getElementById('modalOvertime').value = '0';
+      document.getElementById('modalBonus').value = '0';
 
       document.getElementById('modalActiveCashbonBadge').textContent = formatRupiahJs(modalCurrentActiveCashbon);
       // Auto pre-fill cashbon deduction if employee has cashbon balance
       const suggestedDeduction = Math.min(modalCalculatedBase + (Number(fixedAllowance) || 0), modalCurrentActiveCashbon);
-      document.getElementById('modalCashbonDeduction').value = suggestedDeduction;
+      document.getElementById('modalCashbonDeduction').value = suggestedDeduction ? new Intl.NumberFormat('id-ID').format(suggestedDeduction) : '0';
 
       document.getElementById('modalNotes').value = `Gaji ${scheme.replace('_', ' ')} (${periodLabel})`;
 
@@ -1222,14 +1241,14 @@ const settlements = await queryAll<{
     };
 
     window.calcModalTotal = function () {
-      const allowance = Number(document.getElementById('modalAllowance').value) || 0;
-      const overtime = Number(document.getElementById('modalOvertime').value) || 0;
-      const bonus = Number(document.getElementById('modalBonus').value) || 0;
-      let cashbonDed = Number(document.getElementById('modalCashbonDeduction').value) || 0;
+      const allowance = getRawNumber(document.getElementById('modalAllowance'));
+      const overtime = getRawNumber(document.getElementById('modalOvertime'));
+      const bonus = getRawNumber(document.getElementById('modalBonus'));
+      let cashbonDed = getRawNumber(document.getElementById('modalCashbonDeduction'));
 
       if (cashbonDed > modalCurrentActiveCashbon) {
         cashbonDed = modalCurrentActiveCashbon;
-        document.getElementById('modalCashbonDeduction').value = cashbonDed;
+        document.getElementById('modalCashbonDeduction').value = new Intl.NumberFormat('id-ID').format(cashbonDed);
       }
 
       const totalGross = modalCalculatedBase + allowance + overtime + bonus;

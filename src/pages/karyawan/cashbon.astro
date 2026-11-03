@@ -158,12 +158,12 @@ const repayments = await queryAll<{
             Nominal yang Diajukan (Rp) <span class="text-rose-500">*</span>
           </label>
           <input
-            type="number"
+            type="text"
+            inputmode="numeric"
             id="applyAmount"
             required
-            min="10000"
-            step="5000"
-            placeholder="Contoh: 300000"
+            oninput="formatRupiahInput(this)"
+            placeholder="Contoh: 300.000"
             class="w-full px-4 py-2.5 rounded-2xl border border-slate-200 text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
           />
         </div>
@@ -328,12 +328,12 @@ const repayments = await queryAll<{
             Nominal yang Diajukan (Rp) <span class="text-rose-500">*</span>
           </label>
           <input
-            type="number"
+            type="text"
+            inputmode="numeric"
             id="modalApplyAmount"
             required
-            min="10000"
-            step="5000"
-            placeholder="Contoh: 300000"
+            oninput="formatRupiahInput(this)"
+            placeholder="Contoh: 300.000"
             class="w-full px-4 py-2.5 rounded-2xl border border-slate-200 text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
           />
         </div>
@@ -373,6 +373,29 @@ const repayments = await queryAll<{
   </div>
 
   <script is:inline>
+    function formatRupiahInput(el) {
+      const cursor = el.selectionStart;
+      const prevLen = el.value.length;
+      const raw = el.value.replace(/\D/g, '');
+      if (!raw) {
+        el.value = '';
+        return;
+      }
+      const formatted = new Intl.NumberFormat('id-ID').format(Number(raw));
+      el.value = formatted;
+      const diff = formatted.length - prevLen;
+      const newPos = Math.max(0, (cursor || 0) + diff);
+      try {
+        el.setSelectionRange(newPos, newPos);
+      } catch (e) {}
+    }
+
+    function getRawNumber(input) {
+      if (!input) return 0;
+      const str = typeof input === 'object' && 'value' in input ? input.value : String(input);
+      return Number(str.replace(/\D/g, '')) || 0;
+    }
+
     function openApplyCashbonModal() {
       const modal = document.getElementById('applyCashbonModal');
       if (modal) modal.classList.remove('hidden');
@@ -385,7 +408,8 @@ const repayments = await queryAll<{
     }
 
     async function sendCashbon(amount, reason, btnEl) {
-      if (!amount || Number(amount) <= 0) {
+      const numAmount = getRawNumber(amount);
+      if (!numAmount || numAmount <= 0) {
         alert('Nominal cashbon harus lebih besar dari 0');
         return;
       }
@@ -404,8 +428,8 @@ const repayments = await queryAll<{
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            amount: Number(amount),
-            amount_requested: Number(amount),
+            amount: numAmount,
+            amount_requested: numAmount,
             reason: reason.trim(),
           }),
         });
@@ -425,7 +449,7 @@ const repayments = await queryAll<{
 
     async function submitApplyCashbon(e) {
       e.preventDefault();
-      const amount = document.getElementById('applyAmount').value;
+      const amount = getRawNumber(document.getElementById('applyAmount'));
       const reason = document.getElementById('applyReason').value.trim();
       const btn = document.getElementById('applySubmitBtn');
       await sendCashbon(amount, reason, btn);
@@ -433,7 +457,7 @@ const repayments = await queryAll<{
 
     async function submitApplyCashbonModal(e) {
       e.preventDefault();
-      const amount = document.getElementById('modalApplyAmount').value;
+      const amount = getRawNumber(document.getElementById('modalApplyAmount'));
       const reason = document.getElementById('modalApplyReason').value.trim();
       const btn = document.getElementById('modalApplySubmitBtn');
       await sendCashbon(amount, reason, btn);

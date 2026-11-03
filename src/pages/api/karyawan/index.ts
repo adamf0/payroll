@@ -56,6 +56,9 @@ export const POST: APIRoute = async ({ request, cookies }) => {
       });
     }
 
+    const cleanBaseRate = typeof base_rate === 'string' ? Number(base_rate.replace(/\D/g, '')) || 0 : Number(base_rate) || 0;
+    const cleanAllowance = typeof fixed_allowance === 'string' ? Number(fixed_allowance.replace(/\D/g, '')) || 0 : Number(fixed_allowance) || 0;
+
     if (id) {
       // UPDATE
       await execute(
@@ -67,9 +70,9 @@ export const POST: APIRoute = async ({ request, cookies }) => {
          WHERE id = ?`,
         [
           nik, name, position || null, phone || '',
-          join_date, scheme, Number(base_rate) || 0,
+          join_date, scheme, cleanBaseRate,
           payday_rule || '25', bank_name || null, bank_account_number || null,
-          bank_account_holder || null, Number(fixed_allowance) || 0,
+          bank_account_holder || null, cleanAllowance,
           is_active !== undefined ? Number(is_active) : 1,
           id
         ]
@@ -98,9 +101,9 @@ export const POST: APIRoute = async ({ request, cookies }) => {
         [
           nik, name, position || null, phone || '',
           join_date || new Date().toISOString().split('T')[0],
-          scheme, Number(base_rate) || 0, payday_rule || '25',
+          scheme, cleanBaseRate, payday_rule || '25',
           bank_name || null, bank_account_number || null, bank_account_holder || null,
-          Number(fixed_allowance) || 0, 1
+          cleanAllowance, 1
         ]
       );
 

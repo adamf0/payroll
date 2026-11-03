@@ -358,10 +358,11 @@ const employees = await queryAll<{ id: number; nik: string; name: string; positi
         <div id="partialAmountContainer" class="hidden">
           <label class="block text-xs font-semibold text-slate-600 mb-1">Nominal Disetujui (Rp)</label>
           <input
-            type="number"
+            type="text"
+            inputmode="numeric"
             id="revApprovedAmount"
-            min="10000"
-            step="5000"
+            oninput="formatRupiahInput(this)"
+            placeholder="Contoh: 300.000"
             class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
           />
           <span class="text-[10px] text-slate-400 mt-1 block">Tentukan plafon nominal yang disepakati</span>
@@ -425,12 +426,12 @@ const employees = await queryAll<{ id: number; nik: string; name: string; positi
         <div>
           <label class="block text-xs font-semibold text-slate-600 mb-1">Nominal Cashbon (Rp) <span class="text-rose-500">*</span></label>
           <input
-            type="number"
+            type="text"
+            inputmode="numeric"
             id="dirAmount"
             required
-            min="10000"
-            step="5000"
-            placeholder="Contoh: 500000"
+            oninput="formatRupiahInput(this)"
+            placeholder="Contoh: 500.000"
             class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
           />
         </div>
@@ -476,6 +477,29 @@ const employees = await queryAll<{ id: number; nik: string; name: string; positi
   </div>
 
   <script is:inline>
+    function formatRupiahInput(el) {
+      const cursor = el.selectionStart;
+      const prevLen = el.value.length;
+      const raw = el.value.replace(/\D/g, '');
+      if (!raw) {
+        el.value = '';
+        return;
+      }
+      const formatted = new Intl.NumberFormat('id-ID').format(Number(raw));
+      el.value = formatted;
+      const diff = formatted.length - prevLen;
+      const newPos = Math.max(0, (cursor || 0) + diff);
+      try {
+        el.setSelectionRange(newPos, newPos);
+      } catch (e) {}
+    }
+
+    function getRawNumber(input) {
+      if (!input) return 0;
+      const str = typeof input === 'object' && 'value' in input ? input.value : String(input);
+      return Number(str.replace(/\D/g, '')) || 0;
+    }
+
     let activeFilter = 'all';
 
     function setFilterStatus(status, btn) {
@@ -515,8 +539,8 @@ const employees = await queryAll<{ id: number; nik: string; name: string; positi
       document.getElementById('revCashbonId').value = id;
       document.getElementById('revEmpName').textContent = empName;
       document.getElementById('revReqAmount').textContent = 'Rp ' + Number(amount).toLocaleString('id-ID');
-      document.getElementById('revApprovedAmount').value = amount;
-      currentReqAmount = amount;
+      document.getElementById('revApprovedAmount').value = Number(amount) ? new Intl.NumberFormat('id-ID').format(Number(amount)) : '';
+      currentReqAmount = Number(amount) || 0;
 
       const radios = document.getElementsByName('decision');
       if (radios.length > 0) radios[0].checked = true;
@@ -536,7 +560,7 @@ const employees = await queryAll<{ id: number; nik: string; name: string; positi
         partialContainer.classList.remove('hidden');
       } else {
         partialContainer.classList.add('hidden');
-        document.getElementById('revApprovedAmount').value = currentReqAmount;
+        document.getElementById('revApprovedAmount').value = currentReqAmount ? new Intl.NumberFormat('id-ID').format(Number(currentReqAmount)) : '';
       }
     }
 
@@ -552,7 +576,7 @@ const employees = await queryAll<{ id: number; nik: string; name: string; positi
 
       if (decision === 'approve_partial') {
         action = 'partial';
-        approvedAmount = Number(document.getElementById('revApprovedAmount').value);
+        approvedAmount = getRawNumber(document.getElementById('revApprovedAmount'));
         if (!approvedAmount || approvedAmount <= 0) {
           alert('Masukkan nominal disetujui yang valid');
           return;
@@ -647,7 +671,7 @@ const employees = await queryAll<{ id: number; nik: string; name: string; positi
     async function submitDirectCashbon(e) {
       e.preventDefault();
       const empId = document.getElementById('dirEmpId').value;
-      const amount = document.getElementById('dirAmount').value;
+      const amount = getRawNumber(document.getElementById('dirAmount'));
       const reason = document.getElementById('dirReason').value.trim();
       const autoDisburse = document.getElementById('dirAutoDisburse').checked;
       const btn = document.getElementById('dirSubmitBtn');
