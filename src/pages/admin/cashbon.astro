@@ -342,13 +342,32 @@ const employees = await queryAll<{ id: number; nik: string; name: string; positi
                         )}
 
                         {(c.status === 'approved' || c.status === 'partial') && !c.disbursed_at && (
-                          <button
-                            type="button"
-                            onclick={`markDisbursed(${c.id}, '${c.emp_name.replace(/'/g, "\\'")}', ${c.amount_approved})`}
-                            class="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition shadow-sm"
-                          >
-                            Tandai Dicairkan
-                          </button>
+                          <div class="inline-flex flex-col items-end gap-1">
+                            <div class="inline-flex items-center gap-1.5">
+                              {c.status === 'partial' && (
+                                <button
+                                  type="button"
+                                  onclick={`openReviewModal(${c.id}, '${c.emp_name.replace(/'/g, "\\'")}', ${c.amount_requested})`}
+                                  class="px-2 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition"
+                                  title="Ubah keputusan persetujuan"
+                                >
+                                  Ubah
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onclick={`markDisbursed(${c.id}, '${c.emp_name.replace(/'/g, "\\'")}', ${c.amount_approved})`}
+                                class="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition shadow-sm"
+                              >
+                                {c.status === 'partial' ? 'Cairkan Tahap 1' : 'Tandai Dicairkan'}
+                              </button>
+                            </div>
+                            {c.status === 'partial' && (
+                              <span class="text-[10px] text-slate-400">
+                                Sisa dicairkan setelah tahap 1 ini cair
+                              </span>
+                            )}
+                          </div>
                         )}
 
                         {c.status === 'partial' && c.disbursed_at && c.un_disbursed_amount > 0 && (
