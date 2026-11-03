@@ -34,6 +34,25 @@ function getRateUnitLabel(scheme: string) {
   if (scheme === 'mingguan') return '/ minggu';
   return '/ bulan';
 }
+
+const monthsList = [
+  { val: 'all', label: 'Semua Bulan' },
+  { val: '01', label: 'Januari' },
+  { val: '02', label: 'Februari' },
+  { val: '03', label: 'Maret' },
+  { val: '04', label: 'April' },
+  { val: '05', label: 'Mei' },
+  { val: '06', label: 'Juni' },
+  { val: '07', label: 'Juli' },
+  { val: '08', label: 'Agustus' },
+  { val: '09', label: 'September' },
+  { val: '10', label: 'Oktober' },
+  { val: '11', label: 'November' },
+  { val: '12', label: 'Desember' },
+];
+
+const currentYear = new Date().getFullYear();
+const yearsList = [currentYear - 1, currentYear, currentYear + 1];
 ---
 
 <Layout title="Gaji & Slip Saya" activeNav="karyawan-payroll">
@@ -140,81 +159,234 @@ function getRateUnitLabel(scheme: string) {
 
     <!-- Riwayat Slip Gaji -->
     <div class="bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden">
-      <div class="p-5 border-b border-slate-100 flex items-center justify-between">
+      <div class="p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h2 class="text-base font-bold text-slate-900">Riwayat Slip Gaji</h2>
-          <p class="text-xs text-slate-500">Bukti pembayaran gaji yang sudah ditransfer</p>
+          <p class="text-xs text-slate-500">Bukti resmi pembayaran gaji dan potongan pinjaman (cashbon)</p>
         </div>
-        <span class="text-xs px-3 py-1 rounded-full bg-slate-100 text-slate-600 font-medium">
-          {settlements.length} Slip Tersedia
-        </span>
+        <div class="flex items-center gap-2">
+          <button
+            type="button"
+            onclick="exportRekapPDF()"
+            class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition cursor-pointer"
+            title="Export Rekapitulasi Slip Gaji ke PDF"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+            </svg>
+            Export PDF (Rekap)
+          </button>
+          <span id="badge-total-slips" class="text-xs px-3 py-1.5 rounded-xl bg-slate-100 text-slate-600 font-semibold">
+            {settlements.length} Slip Tersedia
+          </span>
+        </div>
+      </div>
+
+      <!-- Filter Bar: Pilih Bulan / Tanggal Spesifik -->
+      <div class="p-4 bg-slate-50/70 border-b border-slate-100">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div class="flex flex-wrap items-center gap-2.5 sm:gap-3">
+            <!-- Dropdown Bulan -->
+            <div>
+              <label for="filterMonth" class="block text-[10px] font-semibold text-slate-400 mb-1">Pilih Bulan</label>
+              <select
+                id="filterMonth"
+                onchange="onMonthOrYearChange()"
+                class="px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-medium text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-sm"
+              >
+                {monthsList.map((m) => (
+                  <option value={m.val}>{m.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <!-- Dropdown Tahun -->
+            <div>
+              <label for="filterYear" class="block text-[10px] font-semibold text-slate-400 mb-1">Tahun</label>
+              <select
+                id="filterYear"
+                onchange="onMonthOrYearChange()"
+                class="px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-medium text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-sm"
+              >
+                {yearsList.map((y) => (
+                  <option value={y} selected={y === currentYear}>{y}</option>
+                ))}
+              </select>
+            </div>
+
+            <div class="hidden sm:block text-slate-300 font-bold text-xs self-end pb-2">atau</div>
+
+            <!-- Tanggal Spesifik -->
+            <div>
+              <label class="block text-[10px] font-semibold text-slate-400 mb-1">Pilih Tanggal Spesifik</label>
+              <div class="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 shadow-sm focus-within:ring-2 focus-within:ring-indigo-500">
+                <input
+                  type="date"
+                  id="filterStartDate"
+                  onchange="applySlipFilters()"
+                  class="text-xs font-medium text-slate-700 bg-transparent focus:outline-none cursor-pointer"
+                  title="Dari Tanggal"
+                />
+                <span class="text-slate-300 text-xs">s/d</span>
+                <input
+                  type="date"
+                  id="filterEndDate"
+                  onchange="applySlipFilters()"
+                  class="text-xs font-medium text-slate-700 bg-transparent focus:outline-none cursor-pointer"
+                  title="Sampai Tanggal"
+                />
+              </div>
+            </div>
+          </div>
+
+          <!-- Reset Filter Button -->
+          <div class="self-end">
+            <button
+              type="button"
+              onclick="resetSlipFilter()"
+              class="px-3.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 text-slate-600 text-xs font-semibold transition shadow-sm cursor-pointer"
+            >
+              Reset Filter
+            </button>
+          </div>
+        </div>
       </div>
 
       <div class="overflow-x-auto">
         <table class="w-full text-left border-collapse text-xs">
           <thead>
-            <tr class="bg-slate-50/60 border-b border-slate-100 text-slate-400 font-semibold uppercase tracking-wider">
+            <tr class="bg-slate-50/80 border-b border-slate-200 text-slate-500 font-semibold uppercase tracking-wider text-[11px]">
               <th class="py-3 px-4">No. Slip</th>
               <th class="py-3 px-4">Periode Kerja</th>
               <th class="py-3 px-4">Total Kerja</th>
-              <th class="py-3 px-4">Total Gaji</th>
-              <th class="py-3 px-4">Tanggal Bayar</th>
+              <th class="py-3 px-4 text-right">Gaji Kotor</th>
+              <th class="py-3 px-4 text-right">Potongan Cashbon</th>
+              <th class="py-3 px-4 text-right">Gaji Bersih</th>
+              <th class="py-3 px-4 text-center">Tanggal Bayar</th>
               <th class="py-3 px-4 text-right">Aksi</th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-slate-100">
+          <tbody class="divide-y divide-slate-100" id="slip-table-body">
             {settlements.length > 0 ? (
-              settlements.map((s) => (
-                <tr class="hover:bg-slate-50/80 transition-colors">
-                  <td class="py-3.5 px-4 font-mono font-bold text-slate-900 whitespace-nowrap">
-                    #SLIP-{s.id.toString().padStart(4, '0')}
-                  </td>
-                  <td class="py-3.5 px-4 font-medium text-slate-800 whitespace-nowrap">
-                    {formatIndonesianDate(s.period_start, false)} s/d {formatIndonesianDate(s.period_end, false)}
-                  </td>
-                  <td class="py-3.5 px-4">
-                    <span class="font-semibold text-slate-800">{getUnitLabel(s.scheme, s.total_units)}</span>
-                  </td>
-                  <td class="py-3.5 px-4 whitespace-nowrap">
-                    <span class="font-extrabold text-slate-900 text-sm">{formatRupiah(s.amount_paid)}</span>
-                  </td>
-                  <td class="py-3.5 px-4 text-slate-600 whitespace-nowrap">
-                    {formatIndonesianDate(s.settled_at)}
-                  </td>
-                  <td class="py-3.5 px-4 text-right whitespace-nowrap">
-                    <button
-                      type="button"
-                      onclick={`openSlipModal(${JSON.stringify({
-                        slipNo: `#SLIP-${s.id.toString().padStart(4, '0')}`,
-                        empName: employee.name,
-                        empNik: employee.nik,
-                        period: `${formatIndonesianDate(s.period_start, false)} s/d ${formatIndonesianDate(s.period_end, false)}`,
-                        scheme: s.scheme.replace('_', ' '),
-                        units: getUnitLabel(s.scheme, s.total_units),
-                        rateFormatted: `${formatRupiah(s.rate)} ${getRateUnitLabel(s.scheme)}`,
-                        baseWage: formatRupiah(Number(s.rate) * Number(s.total_units)),
-                        allowance: formatRupiah(Number(s.allowance) || 0),
-                        overtime: formatRupiah(Number(s.overtime_pay) || 0),
-                        bonus: formatRupiah(Number(s.bonus) || 0),
-                        cashbon: formatRupiah(Number(s.cashbon_deduction) || 0),
-                        amountFormatted: formatRupiah(s.amount_paid),
-                        settledDate: formatIndonesianDate(s.settled_at)
-                      })})`}
-                      class="px-3.5 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold transition text-xs border border-indigo-200"
-                    >
-                      Lihat & Cetak Slip
-                    </button>
-                  </td>
-                </tr>
-              ))
-            ) : (
-              <tr>
-                <td colspan="6" class="py-8 text-center text-slate-400">
-                  Belum ada riwayat slip gaji sebelumnya.
-                </td>
-              </tr>
-            )}
+              settlements.map((s) => {
+                const baseWageNum = Number(s.rate) * Number(s.total_units);
+                const allwNum = Number(s.allowance) || 0;
+                const ovtNum = Number(s.overtime_pay) || 0;
+                const bnsNum = Number(s.bonus) || 0;
+                const grossNum = baseWageNum + allwNum + ovtNum + bnsNum;
+                const cashbonNum = Number(s.cashbon_deduction) || 0;
+                const netNum = Number(s.amount_paid);
+
+                const periodStartStr = s.period_start ? s.period_start.toString().substring(0, 10) : '';
+                const periodEndStr = s.period_end ? s.period_end.toString().substring(0, 10) : '';
+                const settledDateStr = s.settled_at ? s.settled_at.toString().substring(0, 10) : '';
+
+                const slipDataObj = {
+                  slipNo: `#SLIP-${s.id.toString().padStart(4, '0')}`,
+                  empName: employee.name,
+                  empNik: employee.nik,
+                  position: employee.position || '',
+                  period: `${formatIndonesianDate(s.period_start, false)} s/d ${formatIndonesianDate(s.period_end, false)}`,
+                  scheme: s.scheme.replace('_', ' '),
+                  units: getUnitLabel(s.scheme, s.total_units),
+                  rateFormatted: `${formatRupiah(s.rate)} ${getRateUnitLabel(s.scheme)}`,
+                  baseWage: formatRupiah(baseWageNum),
+                  allowance: formatRupiah(allwNum),
+                  overtime: formatRupiah(ovtNum),
+                  bonus: formatRupiah(bnsNum),
+                  cashbon: formatRupiah(cashbonNum),
+                  amountFormatted: formatRupiah(netNum),
+                  settledDate: formatIndonesianDate(s.settled_at)
+                };
+
+                return (
+                  <tr
+                    class="slip-row hover:bg-slate-50/80 transition-colors"
+                    data-slip-no={slipDataObj.slipNo}
+                    data-period-start={periodStartStr}
+                    data-period-end={periodEndStr}
+                    data-settled-date={settledDateStr}
+                    data-period={slipDataObj.period}
+                    data-units={slipDataObj.units}
+                    data-gross={grossNum}
+                    data-cashbon={cashbonNum}
+                    data-net={netNum}
+                    data-settled-date-formatted={slipDataObj.settledDate}
+                  >
+                    <td class="py-3.5 px-4 font-mono font-bold text-slate-900 whitespace-nowrap">
+                      {slipDataObj.slipNo}
+                    </td>
+                    <td class="py-3.5 px-4 font-medium text-slate-800 whitespace-nowrap">
+                      {slipDataObj.period}
+                    </td>
+                    <td class="py-3.5 px-4 whitespace-nowrap">
+                      <span class="font-semibold text-slate-700">{slipDataObj.units}</span>
+                    </td>
+                    <td class="py-3.5 px-4 text-right font-medium text-slate-700 whitespace-nowrap">
+                      {formatRupiah(grossNum)}
+                    </td>
+                    <td class="py-3.5 px-4 text-right whitespace-nowrap">
+                      {cashbonNum > 0 ? (
+                        <span class="font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-lg border border-rose-100">
+                          -{formatRupiah(cashbonNum)}
+                        </span>
+                      ) : (
+                        <span class="text-slate-400 font-medium">-</span>
+                      )}
+                    </td>
+                    <td class="py-3.5 px-4 text-right whitespace-nowrap">
+                      <span class="font-extrabold text-emerald-700 text-sm">{formatRupiah(netNum)}</span>
+                    </td>
+                    <td class="py-3.5 px-4 text-center text-slate-600 whitespace-nowrap">
+                      {formatIndonesianDate(s.settled_at)}
+                    </td>
+                    <td class="py-3.5 px-4 text-right whitespace-nowrap">
+                      <div class="inline-flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onclick={`openSlipModal(${JSON.stringify(slipDataObj)})`}
+                          class="px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold transition text-xs cursor-pointer"
+                          title="Lihat Rincian Slip Gaji"
+                        >
+                          Lihat Detail
+                        </button>
+                        <button
+                          type="button"
+                          onclick={`printSlip(${JSON.stringify(slipDataObj)})`}
+                          class="px-3 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold transition text-xs border border-indigo-200 cursor-pointer inline-flex items-center gap-1"
+                          title="Cetak / Simpan Slip ke PDF"
+                        >
+                          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
+                          Cetak Slip
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })
+            ) : null}
+            <tr id="no-slips-row" class={settlements.length > 0 ? "hidden" : ""}>
+              <td colspan="8" class="py-8 text-center text-slate-400">
+                Belum ada riwayat slip gaji sebelumnya.
+              </td>
+            </tr>
+            <tr id="no-slips-filtered-row" class="hidden">
+              <td colspan="8" class="py-8 text-center text-slate-400">
+                Tidak ada slip gaji yang sesuai dengan filter bulan/tanggal yang dipilih.
+              </td>
+            </tr>
           </tbody>
+          <tfoot id="slip-table-tfoot" class="bg-slate-50/90 border-t-2 border-slate-200 font-bold text-slate-800">
+            <tr>
+              <td colspan="3" class="py-3.5 px-4 text-right text-slate-600 font-bold text-xs">
+                Total Terfilter (<span id="summary-slip-count">0</span> Slip):
+              </td>
+              <td class="py-3.5 px-4 text-right text-slate-900" id="summary-gross-val">Rp 0</td>
+              <td class="py-3.5 px-4 text-right text-rose-600" id="summary-cashbon-val">-Rp 0</td>
+              <td class="py-3.5 px-4 text-right text-emerald-700 text-sm font-extrabold" id="summary-net-val">Rp 0</td>
+              <td colspan="2" class="py-3.5 px-4"></td>
+            </tr>
+          </tfoot>
         </table>
       </div>
     </div>
@@ -224,11 +396,14 @@ function getRateUnitLabel(scheme: string) {
   <div id="slip-modal" class="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm hidden flex items-center justify-center p-4">
     <div class="bg-white rounded-3xl max-w-md w-full border border-slate-200 shadow-xl overflow-hidden">
       <div class="p-4 bg-slate-900 text-white flex items-center justify-between">
-        <div class="text-sm font-bold">Bukti Slip Gaji</div>
+        <div class="text-sm font-bold flex items-center gap-2">
+          <span>Bukti Slip Gaji</span>
+          <span class="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-indigo-300 font-mono font-normal">Payrollku</span>
+        </div>
         <button
           type="button"
           onclick="closeSlipModal()"
-          class="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-white flex items-center justify-center text-sm font-bold"
+          class="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-white flex items-center justify-center text-sm font-bold cursor-pointer"
         >
           &times;
         </button>
@@ -253,6 +428,9 @@ function getRateUnitLabel(scheme: string) {
             <span class="text-slate-500">Jenis Gaji:</span>
             <span id="modal-scheme" class="text-slate-800 capitalize font-medium">Skema</span>
           </div>
+          <div class="border-t border-slate-100 pt-2 font-semibold text-slate-500 text-[11px] uppercase tracking-wider">
+            Pendapatan
+          </div>
           <div class="flex justify-between">
             <span class="text-slate-500">Gaji Pokok:</span>
             <span id="modal-base-wage" class="font-medium text-slate-800">Rp 0</span>
@@ -265,6 +443,9 @@ function getRateUnitLabel(scheme: string) {
             <span class="text-slate-500">Lembur & Bonus:</span>
             <span id="modal-additional" class="font-medium text-slate-800">Rp 0</span>
           </div>
+          <div class="border-t border-slate-100 pt-2 font-semibold text-rose-600 text-[11px] uppercase tracking-wider">
+            Potongan
+          </div>
           <div class="flex justify-between text-rose-600 font-semibold">
             <span>Potongan Cashbon:</span>
             <span id="modal-cashbon">-Rp 0</span>
@@ -272,14 +453,17 @@ function getRateUnitLabel(scheme: string) {
         </div>
 
         <div class="p-4 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-between mt-2">
-          <span class="font-bold text-indigo-950 text-xs">Total Gaji Bersih</span>
+          <div>
+            <span class="font-bold text-indigo-950 text-xs block">Total Gaji Bersih</span>
+            <span class="text-[10px] text-indigo-600">Take Home Pay</span>
+          </div>
           <div id="modal-amount" class="text-lg font-extrabold text-indigo-900">
             Rp 0
           </div>
         </div>
 
         <div class="text-[11px] text-slate-400 text-center pt-2">
-          Dibayarkan pada <span id="modal-settled-date">Tanggal</span>. Resmi dari sistem Payrollku.
+          Dibayarkan pada <span id="modal-settled-date">Tanggal</span>. Dokumen sah resmi dari sistem Payrollku.
         </div>
       </div>
 
@@ -287,23 +471,41 @@ function getRateUnitLabel(scheme: string) {
         <button
           type="button"
           onclick="closeSlipModal()"
-          class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-200 transition"
+          class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-200 transition cursor-pointer"
         >
           Tutup
         </button>
         <button
           type="button"
           id="modal-print-btn"
-          class="px-5 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white transition shadow-sm"
+          class="inline-flex items-center gap-1.5 px-5 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white transition shadow-sm cursor-pointer"
         >
-          Cetak Slip
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
+          Cetak / Simpan PDF
         </button>
       </div>
     </div>
   </div>
 
-  <script is:inline>
+  <script is:inline define:vars={{ employeeName: employee.name, employeeNik: employee.nik, employeePosition: employee.position || '', employeeScheme: employee.scheme.replace('_', ' ') }}>
     let activeSlipData = null;
+
+    function formatRupiahJS(num) {
+      return 'Rp ' + Math.round(Number(num) || 0).toLocaleString('id-ID');
+    }
+
+    function formatDateID(dateStr) {
+      if (!dateStr) return '-';
+      const parts = dateStr.split('-');
+      if (parts.length === 3) {
+        const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+        const d = parseInt(parts[2], 10);
+        const m = parseInt(parts[1], 10) - 1;
+        const y = parts[0];
+        return `${d} ${months[m] || ''} ${y}`;
+      }
+      return dateStr;
+    }
 
     window.openSlipModal = function (data) {
       activeSlipData = data;
@@ -325,50 +527,76 @@ function getRateUnitLabel(scheme: string) {
       document.getElementById('slip-modal').classList.add('hidden');
     };
 
-    document.getElementById('modal-print-btn').addEventListener('click', () => {
-      if (!activeSlipData) return;
-      const d = activeSlipData;
-      const printWindow = window.open('', '', 'width=650,height=700');
+    window.printSlip = function (data) {
+      const d = data || activeSlipData;
+      if (!d) return;
+
+      const printWindow = window.open('', '', 'width=680,height=750');
       printWindow.document.write(`
         <!DOCTYPE html>
         <html>
           <head>
-            <title>Slip Gaji ${d.slipNo}</title>
+            <title>Slip_Gaji_${d.slipNo}_${d.empName.replace(/[\s\/]/g, '_')}</title>
             <style>
-              body { font-family: sans-serif; padding: 30px; color: #0f172a; margin: 0; }
-              .header { border-bottom: 2px solid #0f172a; padding-bottom: 10px; margin-bottom: 20px; }
-              .title { font-size: 18px; font-weight: bold; }
-              .row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px; }
-              .section { margin-top: 15px; font-weight: bold; font-size: 12px; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; }
-              .total { margin-top: 15px; border-top: 2px solid #0f172a; padding-top: 10px; font-size: 15px; font-weight: bold; }
-              .footer { margin-top: 30px; font-size: 11px; color: #64748b; text-align: center; }
+              @page { size: portrait; margin: 12mm 15mm; }
+              body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; padding: 25px; color: #0f172a; margin: 0; font-size: 13px; line-height: 1.5; }
+              .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #0f172a; padding-bottom: 12px; margin-bottom: 20px; }
+              .brand { font-size: 22px; font-weight: 800; letter-spacing: -0.5px; color: #4338ca; }
+              .sub { font-size: 11px; color: #64748b; margin-top: 2px; }
+              .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px; font-size: 13px; background: #f8fafc; padding: 12px 16px; border-radius: 8px; border: 1px solid #e2e8f0; }
+              .section-title { font-size: 11px; font-weight: bold; text-transform: uppercase; color: #475569; letter-spacing: 0.5px; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; margin-bottom: 8px; margin-top: 16px; }
+              .row { display: flex; justify-content: space-between; padding: 5px 0; font-size: 13px; }
+              .total-box { margin-top: 20px; border-top: 2px solid #0f172a; padding-top: 12px; display: flex; justify-content: space-between; font-size: 16px; font-weight: bold; }
+              .footer { margin-top: 35px; font-size: 11px; color: #64748b; text-align: center; border-top: 1px dashed #cbd5e1; padding-top: 15px; }
+              @media print {
+                body { padding: 0; }
+              }
             </style>
           </head>
           <body>
             <div class="header">
-              <div class="title">PAYROLLKU - BUKTI SLIP GAJI</div>
-              <div style="font-size: 12px; color: #64748b;">${d.slipNo}</div>
+              <div>
+                <div class="brand">PAYROLLKU</div>
+                <div class="sub">Bukti Resmi Penggajian & Potongan</div>
+              </div>
+              <div style="text-align: right;">
+                <div style="font-family: monospace; font-weight: bold; font-size: 14px;">${d.slipNo}</div>
+                <div class="sub">${d.settledDate}</div>
+              </div>
             </div>
-            <div class="row"><span>Nama Karyawan:</span><strong>${d.empName}</strong></div>
-            <div class="row"><span>NIK:</span><span>${d.empNik}</span></div>
-            <div class="row"><span>Periode Kerja:</span><span>${d.period}</span></div>
-            <div class="row"><span>Jenis Gaji:</span><span style="text-transform: capitalize;">${d.scheme} (${d.units})</span></div>
 
-            <div class="section">PENDAPATAN</div>
-            <div class="row"><span>Gaji Pokok:</span><span>${d.baseWage || d.rateFormatted}</span></div>
+            <div class="info-grid">
+              <div>
+                <div style="color: #64748b; font-size: 11px;">Karyawan:</div>
+                <strong style="font-size: 14px;">${d.empName}</strong>
+                <div style="color: #64748b;">NIK: ${d.empNik} • Posisi: ${d.position || '-'}</div>
+              </div>
+              <div style="text-align: right;">
+                <div style="color: #64748b; font-size: 11px;">Periode Pembayaran:</div>
+                <strong style="font-size: 13px;">${d.period}</strong>
+                <div style="color: #64748b; text-transform: capitalize;">Skema Gaji: ${d.scheme} (${d.units})</div>
+              </div>
+            </div>
+
+            <div class="section-title">Pendapatan</div>
+            <div class="row"><span>Gaji Pokok (${d.units} × ${d.rateFormatted}):</span><span>${d.baseWage}</span></div>
             <div class="row"><span>Tunjangan:</span><span>${d.allowance || 'Rp 0'}</span></div>
             <div class="row"><span>Upah Lembur:</span><span>${d.overtime || 'Rp 0'}</span></div>
             <div class="row"><span>Bonus:</span><span>${d.bonus || 'Rp 0'}</span></div>
 
-            <div class="section" style="color: #b91c1c;">POTONGAN</div>
-            <div class="row" style="color: #b91c1c;"><span>Potongan Cashbon:</span><span>-${d.cashbon || 'Rp 0'}</span></div>
+            <div class="section-title" style="color: #b91c1c;">Potongan</div>
+            <div class="row" style="color: #b91c1c;">
+              <span>Potongan Cashbon / Pinjaman:</span>
+              <strong>-${d.cashbon || 'Rp 0'}</strong>
+            </div>
 
-            <div class="row total">
-              <span>Total Gaji Bersih:</span>
+            <div class="total-box">
+              <span>Total Gaji Bersih (Take Home Pay):</span>
               <span style="color: #047857;">${d.amountFormatted}</span>
             </div>
+
             <div class="footer">
-              Dibayarkan pada ${d.settledDate}. Sah tanpa tanda tangan fisik.
+              Dibayarkan pada ${d.settledDate}. Dokumen ini dihasilkan secara otomatis oleh sistem Payrollku dan sah tanpa tanda tangan fisik.
             </div>
           </body>
         </html>
@@ -376,6 +604,282 @@ function getRateUnitLabel(scheme: string) {
       printWindow.document.close();
       printWindow.focus();
       printWindow.print();
+    };
+
+    document.getElementById('modal-print-btn')?.addEventListener('click', () => {
+      if (activeSlipData) {
+        window.printSlip(activeSlipData);
+      }
     });
+
+    window.onMonthOrYearChange = function () {
+      const monthSelect = document.getElementById('filterMonth');
+      const yearSelect = document.getElementById('filterYear');
+      const startInput = document.getElementById('filterStartDate');
+      const endInput = document.getElementById('filterEndDate');
+
+      const monthVal = monthSelect.value;
+      const yearVal = yearSelect.value;
+
+      if (monthVal !== 'all') {
+        const y = parseInt(yearVal, 10);
+        const m = parseInt(monthVal, 10);
+        const lastDay = new Date(y, m, 0).getDate();
+        startInput.value = `${y}-${String(m).padStart(2, '0')}-01`;
+        endInput.value = `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+      } else {
+        startInput.value = '';
+        endInput.value = '';
+      }
+
+      window.applySlipFilters();
+    };
+
+    window.resetSlipFilter = function () {
+      document.getElementById('filterMonth').value = 'all';
+      document.getElementById('filterStartDate').value = '';
+      document.getElementById('filterEndDate').value = '';
+      window.applySlipFilters();
+    };
+
+    window.applySlipFilters = function () {
+      const startFilter = document.getElementById('filterStartDate')?.value || '';
+      const endFilter = document.getElementById('filterEndDate')?.value || '';
+      const monthFilter = document.getElementById('filterMonth')?.value || 'all';
+      const yearFilter = document.getElementById('filterYear')?.value || '';
+
+      const rows = Array.from(document.querySelectorAll('.slip-row'));
+      if (rows.length === 0) return;
+
+      let visibleCount = 0;
+      let totalGross = 0;
+      let totalCashbon = 0;
+      let totalNet = 0;
+
+      rows.forEach((row) => {
+        const periodStart = row.dataset.periodStart || '';
+        const periodEnd = row.dataset.periodEnd || '';
+        const settledDate = row.dataset.settledDate || '';
+        const gross = Number(row.dataset.gross) || 0;
+        const cashbon = Number(row.dataset.cashbon) || 0;
+        const net = Number(row.dataset.net) || 0;
+
+        let match = true;
+
+        if (startFilter) {
+          const checkDate = settledDate || periodEnd;
+          if (checkDate && checkDate < startFilter && periodEnd < startFilter) {
+            match = false;
+          }
+        }
+
+        if (endFilter && match) {
+          const checkDate = settledDate || periodStart;
+          if (checkDate && checkDate > endFilter && periodStart > endFilter) {
+            match = false;
+          }
+        }
+
+        if (!startFilter && !endFilter && monthFilter !== 'all') {
+          const ymPrefix = `${yearFilter}-${monthFilter}`;
+          const inMonth =
+            settledDate.startsWith(ymPrefix) ||
+            periodEnd.startsWith(ymPrefix) ||
+            periodStart.startsWith(ymPrefix);
+          if (!inMonth) {
+            match = false;
+          }
+        }
+
+        if (match) {
+          row.style.display = '';
+          visibleCount++;
+          totalGross += gross;
+          totalCashbon += cashbon;
+          totalNet += net;
+        } else {
+          row.style.display = 'none';
+        }
+      });
+
+      const badgeEl = document.getElementById('badge-total-slips');
+      if (badgeEl) {
+        badgeEl.textContent = `${visibleCount} Slip Ditemukan`;
+      }
+
+      const countEl = document.getElementById('summary-slip-count');
+      if (countEl) countEl.textContent = visibleCount;
+
+      const grossEl = document.getElementById('summary-gross-val');
+      if (grossEl) grossEl.textContent = formatRupiahJS(totalGross);
+
+      const cashbonEl = document.getElementById('summary-cashbon-val');
+      if (cashbonEl) {
+        cashbonEl.textContent = totalCashbon > 0 ? `-${formatRupiahJS(totalCashbon)}` : 'Rp 0';
+      }
+
+      const netEl = document.getElementById('summary-net-val');
+      if (netEl) netEl.textContent = formatRupiahJS(totalNet);
+
+      const emptyFilteredEl = document.getElementById('no-slips-filtered-row');
+      const tfootEl = document.getElementById('slip-table-tfoot');
+      if (emptyFilteredEl) {
+        emptyFilteredEl.classList.toggle('hidden', visibleCount > 0);
+      }
+      if (tfootEl) {
+        tfootEl.style.display = visibleCount > 0 ? '' : 'none';
+      }
+    };
+
+    window.exportRekapPDF = function () {
+      const visibleRows = Array.from(document.querySelectorAll('.slip-row')).filter(
+        (r) => r.style.display !== 'none'
+      );
+      if (visibleRows.length === 0) {
+        alert('Tidak ada data slip gaji pada periode yang dipilih untuk diexport.');
+        return;
+      }
+
+      const monthSelect = document.getElementById('filterMonth');
+      const monthText = monthSelect ? monthSelect.options[monthSelect.selectedIndex].text : '';
+      const yearSelect = document.getElementById('filterYear');
+      const yearText = yearSelect ? yearSelect.value : '';
+      const startDate = document.getElementById('filterStartDate')?.value;
+      const endDate = document.getElementById('filterEndDate')?.value;
+
+      let periodLabel = '';
+      if (startDate && endDate) {
+        periodLabel = `${formatDateID(startDate)} s/d ${formatDateID(endDate)}`;
+      } else if (monthSelect && monthSelect.value !== 'all') {
+        periodLabel = `${monthText} ${yearText}`;
+      } else {
+        periodLabel = 'Semua Riwayat Slip Gaji';
+      }
+
+      let totalGross = 0;
+      let totalCashbon = 0;
+      let totalNet = 0;
+
+      const rowsHtml = visibleRows
+        .map((r) => {
+          const slipNo = r.dataset.slipNo;
+          const period = r.dataset.period;
+          const units = r.dataset.units;
+          const gross = Number(r.dataset.gross) || 0;
+          const cashbon = Number(r.dataset.cashbon) || 0;
+          const net = Number(r.dataset.net) || 0;
+          const settledDate = r.dataset.settledDateFormatted;
+
+          totalGross += gross;
+          totalCashbon += cashbon;
+          totalNet += net;
+
+          return `
+          <tr>
+            <td style="padding: 7px 10px; border: 1px solid #cbd5e1; font-family: monospace; font-weight: bold;">${slipNo}</td>
+            <td style="padding: 7px 10px; border: 1px solid #cbd5e1;">${period}</td>
+            <td style="padding: 7px 10px; border: 1px solid #cbd5e1;">${units}</td>
+            <td style="padding: 7px 10px; border: 1px solid #cbd5e1; text-align: right;">${formatRupiahJS(gross)}</td>
+            <td style="padding: 7px 10px; border: 1px solid #cbd5e1; text-align: right; color: ${cashbon > 0 ? '#b91c1c' : '#64748b'}; font-weight: ${cashbon > 0 ? 'bold' : 'normal'};">
+              ${cashbon > 0 ? '-' + formatRupiahJS(cashbon) : '-'}
+            </td>
+            <td style="padding: 7px 10px; border: 1px solid #cbd5e1; text-align: right; font-weight: bold; color: #047857;">${formatRupiahJS(net)}</td>
+            <td style="padding: 7px 10px; border: 1px solid #cbd5e1; text-align: center;">${settledDate}</td>
+          </tr>
+        `;
+        })
+        .join('');
+
+      const printWindow = window.open('', '', 'width=850,height=750');
+      printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>Rekap_Slip_Gaji_${encodeURIComponent(employeeName)}_${periodLabel.replace(/[\s\/]/g, '_')}</title>
+            <style>
+              @page { size: landscape; margin: 12mm 15mm; }
+              body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; padding: 25px; color: #0f172a; margin: 0; font-size: 12px; }
+              .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #0f172a; padding-bottom: 12px; margin-bottom: 16px; }
+              .brand { font-size: 20px; font-weight: 800; letter-spacing: -0.5px; color: #4338ca; }
+              .title { font-size: 14px; font-weight: bold; color: #0f172a; margin-top: 2px; }
+              .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 16px; font-size: 12px; background: #f8fafc; padding: 12px 16px; border-radius: 8px; border: 1px solid #e2e8f0; }
+              table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 11px; }
+              th { background: #f1f5f9; color: #334155; font-weight: 700; text-transform: uppercase; font-size: 10px; letter-spacing: 0.5px; border: 1px solid #94a3b8; padding: 8px; }
+              td { border: 1px solid #cbd5e1; }
+              tfoot td { background: #f8fafc; font-weight: bold; border: 1px solid #94a3b8; }
+              .footer { margin-top: 25px; display: flex; justify-content: space-between; align-items: flex-end; font-size: 11px; color: #64748b; border-top: 1px dashed #cbd5e1; padding-top: 12px; }
+              @media print {
+                body { padding: 0; }
+              }
+            </style>
+          </head>
+          <body>
+            <div class="header">
+              <div>
+                <div class="brand">PAYROLLKU</div>
+                <div class="title">REKAPITULASI SLIP GAJI KARYAWAN</div>
+              </div>
+              <div style="text-align: right; font-size: 11px; color: #64748b;">
+                <div>Tanggal Cetak: <strong>${new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</strong></div>
+                <div>Total: <strong>${visibleRows.length} Slip</strong></div>
+              </div>
+            </div>
+
+            <div class="info-grid">
+              <div>
+                <div style="color: #64748b; font-size: 11px;">Nama Karyawan:</div>
+                <div style="font-size: 14px; font-weight: bold; color: #0f172a;">${employeeName}</div>
+                <div style="color: #64748b;">NIK: ${employeeNik} • Jabatan: ${employeePosition || '-'}</div>
+              </div>
+              <div style="text-align: right;">
+                <div style="color: #64748b; font-size: 11px;">Periode Filter:</div>
+                <div style="font-size: 13px; font-weight: bold; color: #4338ca;">${periodLabel}</div>
+                <div style="color: #64748b;">Skema: ${employeeScheme}</div>
+              </div>
+            </div>
+
+            <table>
+              <thead>
+                <tr>
+                  <th style="text-align: left;">No. Slip</th>
+                  <th style="text-align: left;">Periode Kerja</th>
+                  <th style="text-align: left;">Total Kerja</th>
+                  <th style="text-align: right;">Gaji Kotor</th>
+                  <th style="text-align: right;">Potongan Cashbon</th>
+                  <th style="text-align: right;">Gaji Bersih</th>
+                  <th style="text-align: center;">Tgl Bayar</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rowsHtml}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td colspan="3" style="padding: 8px; text-align: right;">TOTAL:</td>
+                  <td style="padding: 8px; text-align: right;">${formatRupiahJS(totalGross)}</td>
+                  <td style="padding: 8px; text-align: right; color: ${totalCashbon > 0 ? '#b91c1c' : '#0f172a'};">
+                    ${totalCashbon > 0 ? '-' + formatRupiahJS(totalCashbon) : 'Rp 0'}
+                  </td>
+                  <td style="padding: 8px; text-align: right; color: #047857; font-size: 12px;">${formatRupiahJS(totalNet)}</td>
+                  <td></td>
+                </tr>
+              </tfoot>
+            </table>
+
+            <div class="footer">
+              <div>Dokumen ini dihasilkan secara resmi oleh sistem <strong>Payrollku</strong>.</div>
+              <div>Halaman 1 dari 1</div>
+            </div>
+          </body>
+        </html>
+      `);
+      printWindow.document.close();
+      printWindow.focus();
+      printWindow.print();
+    };
+
+    // Initialize filter on load
+    window.applySlipFilters();
   </script>
+
 </Layout>
