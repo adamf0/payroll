@@ -39,10 +39,15 @@ const enrichedItems = payrollItems.map((item) => ({
   statusCategory: getItemStatus(item),
 }));
 
-// Hitung total item per kategori status
-const countHariIni = enrichedItems.filter((i) => i.statusCategory === 'hari_ini_bayar').length;
-const countBelumBayar = enrichedItems.filter((i) => i.statusCategory === 'belum_terbayar').length;
-const countBerlangsung = enrichedItems.filter((i) => i.statusCategory === 'sedang_berlangsung').length;
+// Hitung total item per kategori status (default filter tanggal: hari ini)
+const initialDefaultItems = enrichedItems.filter((i) => {
+  const pStart = i.period_start || i.period_end || '';
+  const pEnd = i.period_end || i.period_start || '';
+  return !(pEnd < todayStr || pStart > todayStr);
+});
+const countHariIni = initialDefaultItems.filter((i) => i.statusCategory === 'hari_ini_bayar').length;
+const countBelumBayar = initialDefaultItems.filter((i) => i.statusCategory === 'belum_terbayar').length;
+const countBerlangsung = initialDefaultItems.filter((i) => i.statusCategory === 'sedang_berlangsung').length;
 
 // Kelompokkan data per nama karyawan
 interface EmployeeGroup {
@@ -252,6 +257,7 @@ const settlements = await queryAll<{
             <input
               type="date"
               id="startDateFilter"
+              value={todayStr}
               onchange="applyFilters()"
               oninput="applyFilters()"
               class="text-xs font-medium text-slate-700 bg-transparent focus:outline-none cursor-pointer w-[110px] sm:w-auto"
@@ -261,6 +267,7 @@ const settlements = await queryAll<{
             <input
               type="date"
               id="endDateFilter"
+              value={todayStr}
               onchange="applyFilters()"
               oninput="applyFilters()"
               class="text-xs font-medium text-slate-700 bg-transparent focus:outline-none cursor-pointer w-[110px] sm:w-auto"
@@ -270,7 +277,7 @@ const settlements = await queryAll<{
               type="button"
               id="clearDateBtn"
               onclick="clearDateFilter()"
-              class="hidden text-slate-400 hover:text-rose-600 text-xs px-1 font-bold"
+              class="text-slate-400 hover:text-rose-600 text-xs px-1 font-bold"
               title="Hapus filter tanggal"
             >
               ✕
