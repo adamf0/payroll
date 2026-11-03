@@ -104,13 +104,13 @@ const employees = await queryAll<{ id: number; nik: string; name: string; positi
       </div>
 
       <div class="bg-blue-50/60 p-4 rounded-2xl border border-blue-200/80 shadow-sm">
-        <span class="text-xs font-semibold text-blue-700 block">Sisa Saldo Aktif</span>
+        <span class="text-xs font-semibold text-blue-700 block">Sisa Belum Dipotong</span>
         <div class="text-lg sm:text-xl font-extrabold text-blue-900 mt-1">{formatRupiah(totalDisbursedActive)}</div>
-        <span class="text-[11px] text-blue-600 mt-0.5 block">Akan dipotong saat gajian</span>
+        <span class="text-[11px] text-blue-600 mt-0.5 block">Akan dipotong saat gajian (payroll)</span>
       </div>
 
       <div class="bg-emerald-50/60 p-4 rounded-2xl border border-emerald-200/80 shadow-sm">
-        <span class="text-xs font-semibold text-emerald-700 block">Sudah Lunas</span>
+        <span class="text-xs font-semibold text-emerald-700 block">Sudah Lunas Terpotong</span>
         <div class="text-lg sm:text-xl font-extrabold text-emerald-900 mt-1">{settledCount} Pengajuan</div>
         <span class="text-[11px] text-emerald-600 mt-0.5 block">Tuntas terpotong payroll</span>
       </div>
@@ -182,7 +182,7 @@ const employees = await queryAll<{ id: number; nik: string; name: string; positi
               <th class="py-3 px-4">Karyawan</th>
               <th class="py-3 px-4">Nominal Pengajuan</th>
               <th class="py-3 px-4">Nominal Disetujui</th>
-              <th class="py-3 px-4">Sisa Saldo</th>
+              <th class="py-3 px-4">Status Pemotongan Gaji</th>
               <th class="py-3 px-4">Status & Pencairan</th>
               <th class="py-3 px-4">Alasan & Catatan</th>
               <th class="py-3 px-4 text-right">Aksi</th>
@@ -247,12 +247,24 @@ const employees = await queryAll<{ id: number; nik: string; name: string; positi
                     <td class="py-3.5 px-4 whitespace-nowrap">
                       {c.disbursed_at ? (
                         c.remaining_balance > 0 ? (
-                          <span class="font-bold text-rose-600">{formatRupiah(c.remaining_balance)}</span>
+                          <div>
+                            <span class="font-bold text-rose-600 block text-xs">Sisa Utang: {formatRupiah(c.remaining_balance)}</span>
+                            <span class="text-[10px] text-slate-500 block">Akan dipotong saat gajian</span>
+                            {c.total_repaid > 0 && (
+                              <span class="text-[10px] text-emerald-600 font-semibold block mt-0.5">Sudah terpotong: {formatRupiah(c.total_repaid)}</span>
+                            )}
+                          </div>
                         ) : (
-                          <span class="text-emerald-600 font-semibold">Rp 0 (Lunas)</span>
+                          <div>
+                            <span class="text-emerald-700 font-bold block text-xs">Lunas Terpotong</span>
+                            <span class="text-[10px] text-slate-500 block">Total terpotong: {formatRupiah(c.total_repaid)}</span>
+                          </div>
                         )
                       ) : (
-                        <span class="text-slate-400">Belum dicairkan</span>
+                        <div>
+                          <span class="text-slate-400 text-xs block">Belum dicairkan</span>
+                          <span class="text-[10px] text-slate-400 block">Belum ada potongan</span>
+                        </div>
                       )}
                     </td>
                     <td class="py-3.5 px-4 whitespace-nowrap">
@@ -260,7 +272,7 @@ const employees = await queryAll<{ id: number; nik: string; name: string; positi
                         {statusLabel}
                       </span>
                       {c.disbursed_at ? (
-                        <span class="block text-[10px] text-slate-400 mt-0.5">
+                        <span class="block text-[10px] text-slate-500 mt-0.5">
                           Cair: {formatIndonesianDate(c.disbursed_at.slice(0, 10))}
                         </span>
                       ) : (
@@ -313,7 +325,15 @@ const employees = await queryAll<{ id: number; nik: string; name: string; positi
                         )}
 
                         {c.status === 'settled' && (
-                          <span class="text-slate-400 text-[11px] font-medium">Selesai</span>
+                          <span class="text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 text-[11px] font-bold">
+                            Lunas Payroll
+                          </span>
+                        )}
+
+                        {c.disbursed_at && c.remaining_balance > 0 && (
+                          <span class="text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-lg border border-indigo-200 text-[11px] font-bold">
+                            Siap Potong Gaji
+                          </span>
                         )}
 
                         {c.status === 'rejected' && (
@@ -545,8 +565,8 @@ const employees = await queryAll<{ id: number; nik: string; name: string; positi
           'Jabatan / Posisi',
           'Nominal Pengajuan (Rp)',
           'Nominal Disetujui (Rp)',
-          'Sudah Dibayar (Rp)',
-          'Sisa Saldo (Rp)',
+          'Sudah Terpotong Gaji (Rp)',
+          'Sisa Belum Dipotong (Rp)',
           'Status',
           'Tanggal Pencairan',
           'Alasan Pengajuan',

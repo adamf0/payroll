@@ -78,14 +78,22 @@ const repayments = await queryAll<{
   repaid_at: string;
   notes: string | null;
   cashbon_id: number;
+  settlement_id: number | null;
 }>(
-  `SELECT r.id, r.amount, r.repaid_at, r.notes, r.cashbon_id
+  `SELECT r.id, r.amount, r.repaid_at, r.notes, r.cashbon_id, r.settlement_id
    FROM cashbon_repayments r
    JOIN cashbon_requests c ON r.cashbon_id = c.id
    WHERE c.employee_id = ?
    ORDER BY r.repaid_at DESC`,
   [currentUser.employee_id]
 );
+
+const repaymentsByCashbonId = new Map<number, typeof repayments>();
+for (const rp of repayments) {
+  const existing = repaymentsByCashbonId.get(rp.cashbon_id) || [];
+  existing.push(rp);
+  repaymentsByCashbonId.set(rp.cashbon_id, existing);
+}
 ---
 
 <Layout title="Cashbon Mandiri" activeNav="karyawan-cashbon">
@@ -100,35 +108,71 @@ const repayments = await queryAll<{
         </div>
         <h1 class="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight mt-1">Cashbon & Pinjaman</h1>
         <p class="text-xs sm:text-sm text-slate-500 mt-1">
-          Ajukan pinjaman mandiri secara transparan, pantau status persetujuan, dan sisa saldo cicilan penggajian.
+          Ajukan pinjaman mandiri, pantau status persetujuan, dan lihat rincian pemotongan otomatis dari gaji.
         </p>
       </div>
     </div>
 
     <!-- Overview Cards -->
-    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-      <div class="bg-gradient-to-br from-indigo-900 to-slate-900 text-white p-5 rounded-3xl shadow-sm">
-        <span class="text-xs font-semibold text-indigo-200 block">Sisa Tagihan Cashbon Aktif</span>
-        <div class="text-2xl sm:text-3xl font-extrabold mt-1 tracking-tight">
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
+      <div class="bg-gradient-to-br from-indigo-950 via-slate-900 to-indigo-900 text-white p-5 rounded-3xl shadow-sm">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-semibold text-indigo-200 block">Sisa Pinjaman Belum Lunas</span>
+          <span class={`text-[10px] px-2 py-0.5 rounded-full font-semibold border ${
+            totalActiveBalance > 0
+              ? 'bg-rose-500/20 text-rose-300 border-rose-500/30'
+              : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+          }`}>
+            {totalActiveBalance > 0 ? 'Utang Aktif' : 'Semua Lunas'}
+          </span>
+        </div>
+        <div class="text-2xl sm:text-3xl font-extrabold mt-2 tracking-tight text-white">
           {formatRupiah(totalActiveBalance)}
         </div>
-        <p class="text-[11px] text-indigo-200/80 mt-2">
+        <p class="text-[11px] text-indigo-200/90 mt-2 leading-relaxed">
           {totalActiveBalance > 0
-            ? 'Akan dipotong otomatis secara bertahap saat gajian tiba.'
-            : 'Tidak ada pinjaman berjalan saat ini.'}
+            ? 'Nominal ini akan otomatis dipotong dari Slip Gaji Anda pada tanggal gajian berikutnya (tidak perlu bayar tunai ke kantor).'
+            : 'Tidak ada pinjaman berjalan saat ini. Seluruh tagihan cashbon telah lunas.'}
         </p>
       </div>
 
       <div class="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
         <div>
-          <span class="text-xs font-semibold text-slate-500 block">Total Sudah Terbayar (Lunas)</span>
-          <div class="text-2xl font-extrabold text-emerald-600 mt-1">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-semibold text-slate-500 block">Total Sudah Terpotong dari Gaji</span>
+            <span class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-semibold border border-emerald-200">
+              Tuntas Lunas
+            </span>
+          </div>
+          <div class="text-2xl font-extrabold text-emerald-600 mt-2">
             {formatRupiah(totalAllRepaid)}
           </div>
         </div>
         <div class="pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-          <span>Gaji Pokok / Tarif:</span>
-          <span class="font-bold text-slate-800">{formatRupiah(employee.base_rate)}</span>
+          <span>Sumber Pemotongan:</span>
+          <span class="font-bold text-slate-800">Otomatis via Slip Gaji (Payroll)</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Informasi Alur Cashbon (Transparan & Sederhana) -->
+    <div class="bg-indigo-50/70 border border-indigo-100 rounded-2xl p-4 mb-6 text-xs text-indigo-950">
+      <div class="font-bold flex items-center gap-1.5 mb-2 text-indigo-900">
+        <svg class="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        Bagaimana Alur Pemotongan Cashbon?
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-[11px] leading-relaxed">
+        <div class="bg-white/80 p-2.5 rounded-xl border border-indigo-100">
+          <strong class="text-slate-900 block mb-0.5">1. Ajukan Pinjaman</strong>
+          Masukkan nominal & alasan kebutuhan. Permohonan ditinjau manajemen.
+        </div>
+        <div class="bg-white/80 p-2.5 rounded-xl border border-indigo-100">
+          <strong class="text-slate-900 block mb-0.5">2. Uang Dicairkan Kasir</strong>
+          Setelah disetujui, kasir mencairkan dana tunai / transfer ke rekening Anda.
+        </div>
+        <div class="bg-white/80 p-2.5 rounded-xl border border-indigo-100">
+          <strong class="text-slate-900 block mb-0.5">3. Dipotong Otomatis dari Gaji</strong>
+          Saat gajian tiba, uang dipotong langsung di Slip Gaji tanpa perlu setor tunai.
         </div>
       </div>
     </div>
@@ -199,78 +243,160 @@ const repayments = await queryAll<{
           </div>
         ) : (
           requests.map((r) => {
+            const myRepayments = repaymentsByCashbonId.get(r.id) || [];
             let statusBadge = 'bg-slate-100 text-slate-700';
             let statusText = r.status;
+
             if (r.status === 'pending') {
               statusBadge = 'bg-amber-100 text-amber-800 border-amber-200';
-              statusText = 'Menunggu Persetujuan';
-            } else if (r.status === 'approved') {
-              statusBadge = 'bg-emerald-100 text-emerald-800 border-emerald-200';
-              statusText = 'Disetujui Penuh';
-            } else if (r.status === 'partial') {
-              statusBadge = 'bg-blue-100 text-blue-800 border-blue-200';
-              statusText = 'Disetujui Sebagian';
+              statusText = 'Menunggu Review Admin';
+            } else if (r.status === 'approved' || r.status === 'partial') {
+              if (r.disbursed_at) {
+                if (r.remaining_balance > 0) {
+                  statusBadge = 'bg-emerald-100 text-emerald-800 border-emerald-200';
+                  statusText = r.status === 'approved' ? 'Uang Cair • Menunggu Potong Gaji' : 'Disetujui Sebagian • Uang Cair';
+                } else {
+                  statusBadge = 'bg-purple-100 text-purple-800 border-purple-200';
+                  statusText = 'Lunas Terpotong Gaji';
+                }
+              } else {
+                statusBadge = 'bg-blue-100 text-blue-800 border-blue-200';
+                statusText = r.status === 'approved' ? 'Disetujui Penuh • Belum Cair' : 'Disetujui Sebagian • Belum Cair';
+              }
             } else if (r.status === 'settled') {
               statusBadge = 'bg-purple-100 text-purple-800 border-purple-200';
-              statusText = 'Lunas';
+              statusText = 'Lunas Terpotong Gaji';
             } else if (r.status === 'rejected') {
               statusBadge = 'bg-rose-100 text-rose-800 border-rose-200';
-              statusText = 'Ditolak';
+              statusText = 'Pengajuan Ditolak';
             }
 
             return (
-              <div class="p-4 sm:p-5 hover:bg-slate-50/60 transition">
+              <div class="p-4 sm:p-5 hover:bg-slate-50/60 transition space-y-3">
+                <!-- Baris 1: Status & Tanggal Pengajuan -->
                 <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div class="flex items-center gap-2">
                     <span class={`px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${statusBadge}`}>
                       {statusText}
                     </span>
                     <span class="text-xs text-slate-400 font-mono">
-                      {formatIndonesianDate(r.created_at.slice(0, 10))}
+                      Diajukan: {formatIndonesianDate(r.created_at.slice(0, 10))}
                     </span>
                   </div>
 
-                  <div class="text-left sm:text-right">
-                    <div class="text-xs text-slate-500">
-                      Diajukan: <span class="font-bold text-slate-800">{formatRupiah(r.amount_requested)}</span>
-                    </div>
-                    {r.amount_approved > 0 && (
-                      <div class="text-xs text-indigo-700 font-extrabold">
-                        Disetujui: {formatRupiah(r.amount_approved)}
-                      </div>
-                    )}
+                  <div class="text-left sm:text-right text-xs">
+                    <span class="text-slate-500">Nominal Diajukan:</span>
+                    <strong class="text-slate-800 ml-1">{formatRupiah(r.amount_requested)}</strong>
                   </div>
                 </div>
 
-                <div class="mt-2 text-xs text-slate-700 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
-                  <span class="font-semibold text-slate-500">Alasan:</span> {r.reason || '-'}
+                <!-- Baris 2: Alasan Kebutuhan & Catatan Admin -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                  <div class="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                    <span class="font-semibold text-slate-500 block text-[11px] mb-0.5">Alasan Kebutuhan:</span>
+                    <span class="text-slate-800">{r.reason || '-'}</span>
+                  </div>
+                  <div class={`p-2.5 rounded-xl border text-xs ${
+                    r.admin_notes
+                      ? 'bg-amber-50/60 border-amber-200 text-amber-900'
+                      : 'bg-slate-50 border-slate-100 text-slate-400'
+                  }`}>
+                    <span class="font-semibold block text-[11px] mb-0.5 text-slate-500">Catatan Admin / Kasir:</span>
+                    <span>{r.admin_notes || 'Belum ada catatan dari admin'}</span>
+                  </div>
                 </div>
 
-                {r.admin_notes && (
-                  <div class="mt-1.5 text-xs text-slate-600 italic bg-amber-50/50 p-2 rounded-xl border border-amber-100">
-                    <span class="font-semibold text-amber-800 not-italic">Catatan Admin:</span> {r.admin_notes}
+                <!-- Baris 3: Status 3 Box Rincian Keuangan & Pemotongan -->
+                {r.amount_approved > 0 && (
+                  <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
+                    <!-- Box 1: Dana Pinjaman Diterima -->
+                    <div class="p-3 rounded-2xl bg-slate-50 border border-slate-200/80 text-xs">
+                      <span class="text-[11px] text-slate-500 font-medium block">1. Total Pinjaman Cair</span>
+                      <div class="text-base font-extrabold text-slate-900 mt-0.5">
+                        {formatRupiah(r.amount_approved)}
+                      </div>
+                      <span class="text-[10px] text-emerald-600 block mt-1 font-medium">
+                        {r.disbursed_at
+                          ? `✓ Cair: ${formatIndonesianDate(r.disbursed_at.slice(0, 10))}`
+                          : '⏳ Menunggu dicairkan kasir'}
+                      </span>
+                    </div>
+
+                    <!-- Box 2: Sudah Terpotong dari Gaji -->
+                    <div class="p-3 rounded-2xl bg-slate-50 border border-slate-200/80 text-xs">
+                      <span class="text-[11px] text-slate-500 font-medium block">2. Sudah Dipotong dari Gaji</span>
+                      <div class="text-base font-extrabold text-emerald-600 mt-0.5">
+                        {formatRupiah(r.total_repaid)}
+                      </div>
+                      <span class="text-[10px] text-slate-500 block mt-1">
+                        {r.total_repaid > 0
+                          ? `✓ Terpotong via ${myRepayments.length} slip gaji`
+                          : 'Belum ada potongan gaji'}
+                      </span>
+                    </div>
+
+                    <!-- Box 3: Sisa yang Belum Dipotong -->
+                    <div class={`p-3 rounded-2xl border text-xs ${
+                      r.remaining_balance > 0
+                        ? 'bg-rose-50/60 border-rose-200'
+                        : 'bg-emerald-50/60 border-emerald-200'
+                    }`}>
+                      <span class="text-[11px] font-medium block text-slate-600">
+                        3. Sisa Belum Dipotong (Utang)
+                      </span>
+                      <div class={`text-base font-extrabold mt-0.5 ${
+                        r.remaining_balance > 0 ? 'text-rose-600' : 'text-emerald-700'
+                      }`}>
+                        {formatRupiah(r.remaining_balance)}
+                      </div>
+                      <span class={`text-[10px] block mt-1 font-semibold ${
+                        r.remaining_balance > 0 ? 'text-rose-600' : 'text-emerald-700'
+                      }`}>
+                        {r.remaining_balance > 0
+                          ? 'Akan dipotong saat gajian'
+                          : '✓ Lunas tuntas terpotong'}
+                      </span>
+                    </div>
                   </div>
                 )}
 
-                <div class="mt-3 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
-                  <div>
-                    {r.disbursed_at ? (
-                      <span class="text-emerald-700 font-medium">
-                        ✓ Uang dicairkan: {formatIndonesianDate(r.disbursed_at.slice(0, 10))}
-                      </span>
-                    ) : (
-                      (r.status === 'approved' || r.status === 'partial') && (
-                        <span class="text-amber-600 font-medium">⏳ Menunggu transfer/pencairan dana dari kasir</span>
-                      )
-                    )}
-                  </div>
-
-                  {r.disbursed_at && (
-                    <div class="font-semibold">
-                      Sisa Saldo: <span class={r.remaining_balance > 0 ? 'text-rose-600 font-bold' : 'text-emerald-600 font-bold'}>{formatRupiah(r.remaining_balance)}</span>
+                <!-- Baris 4: Informasi Arah & Sumber Data (Kemana arahnya & dari mana terpotong) -->
+                {r.disbursed_at && r.remaining_balance > 0 && (
+                  <div class="p-3 rounded-2xl bg-indigo-50/80 border border-indigo-100 flex items-start gap-2 text-xs text-indigo-950">
+                    <span class="text-indigo-600 font-bold text-sm">💡</span>
+                    <div>
+                      <strong>Kemana arah sisa pinjaman ini?</strong>
+                      <p class="text-[11px] text-indigo-800 mt-0.5 leading-relaxed">
+                        Sisa pinjaman sebesar <strong>{formatRupiah(r.remaining_balance)}</strong> ini akan <strong>dipotong otomatis dari Slip Gaji Anda</strong> saat Admin memproses pembayaran gaji berikutnya. Anda tidak perlu membayar tunai ke kantor.
+                      </p>
                     </div>
-                  )}
-                </div>
+                  </div>
+                )}
+
+                <!-- Rincian Sumber Pemotongan yang sudah terjadi -->
+                {myRepayments.length > 0 && (
+                  <div class="pt-2">
+                    <div class="text-[11px] font-bold text-slate-700 mb-1 flex items-center gap-1">
+                      <span>Dari mana data terpotong?</span>
+                      <span class="text-slate-400 font-normal">(Riwayat pemotongan pada slip gaji):</span>
+                    </div>
+                    <div class="space-y-1">
+                      {myRepayments.map((rp) => (
+                        <div class="flex items-center justify-between p-2 rounded-xl bg-slate-50 border border-slate-100 text-xs">
+                          <div>
+                            <span class="font-bold text-slate-800">{rp.notes || 'Potongan gaji'}</span>
+                            <span class="text-[10px] text-slate-400 font-mono block">
+                              Tanggal: {formatIndonesianDate(rp.repaid_at.slice(0, 10))}
+                            </span>
+                          </div>
+                          <div class="font-extrabold text-emerald-700">
+                            -{formatRupiah(Number(rp.amount))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })
