@@ -96,15 +96,6 @@ const employeeGroups = Array.from(employeeGroupsMap.values()).sort((a, b) => a.e
 // Unique employees untuk dropdown filter
 const uniqueEmployees = employeeGroups.map((g) => g.employee);
 
-// Unique years untuk dropdown filter
-const uniqueYears = Array.from(
-  new Set([
-    currentYearStr,
-    ...enrichedItems.map((i) => (i.period_end || i.period_start || '').slice(0, 4)).filter((y) => y && y.length === 4),
-    ...settlements.map((s) => (s.period_end || s.settled_at || '').slice(0, 4)).filter((y) => y && y.length === 4),
-  ])
-).sort((a, b) => b.localeCompare(a));
-
 // Fetch active cashbon balances per employee
 const activeCashbonRows = await queryAll<{
   employee_id: number;
@@ -151,6 +142,15 @@ const settlements = await queryAll<{
    JOIN employees e ON s.employee_id = e.id
    ORDER BY s.id DESC LIMIT 50`
 );
+
+// Unique years untuk dropdown filter
+const uniqueYears = Array.from(
+  new Set([
+    currentYearStr,
+    ...enrichedItems.map((i) => (i.period_end || i.period_start || '').slice(0, 4)).filter((y) => y && y.length === 4),
+    ...settlements.map((s) => (s.period_end || s.settled_at || '').slice(0, 4)).filter((y) => y && y.length === 4),
+  ])
+).sort((a, b) => b.localeCompare(a));
 ---
 
 <Layout title="Kelola Gaji Karyawan" activeNav="admin-payroll">
