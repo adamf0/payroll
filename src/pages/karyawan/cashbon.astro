@@ -94,6 +94,33 @@ for (const rp of repayments) {
   existing.push(rp);
   repaymentsByCashbonId.set(rp.cashbon_id, existing);
 }
+
+const monthsList = [
+  { val: 'all', label: 'Semua Bulan' },
+  { val: '01', label: 'Januari' },
+  { val: '02', label: 'Februari' },
+  { val: '03', label: 'Maret' },
+  { val: '04', label: 'April' },
+  { val: '05', label: 'Mei' },
+  { val: '06', label: 'Juni' },
+  { val: '07', label: 'Juli' },
+  { val: '08', label: 'Agustus' },
+  { val: '09', label: 'September' },
+  { val: '10', label: 'Oktober' },
+  { val: '11', label: 'November' },
+  { val: '12', label: 'Desember' },
+];
+
+const currentYearStr = String(new Date().getFullYear());
+const uniqueYears = Array.from(
+  new Set([
+    currentYearStr,
+    ...requests.map((r) => {
+      const s = typeof r.created_at === 'string' ? r.created_at : new Date(r.created_at).toISOString();
+      return s.slice(0, 4);
+    }),
+  ])
+).sort((a, b) => b.localeCompare(a));
 ---
 
 <Layout title="Cashbon Mandiri" activeNav="karyawan-cashbon">
@@ -233,7 +260,70 @@ for (const rp of repayments) {
     <div class="bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden mb-8">
       <div class="p-4 border-b border-slate-100 flex items-center justify-between">
         <h2 class="text-sm font-bold text-slate-900">Riwayat Pengajuan Cashbon Anda</h2>
-        <span class="text-xs text-slate-400">{requests.length} Pengajuan</span>
+        <span class="text-xs text-slate-400" id="cashbonCountBadge">{requests.length} Pengajuan</span>
+      </div>
+
+      <!-- Filter Bar Bulan, Tahun & Status -->
+      <div class="p-4 bg-slate-50/70 border-b border-slate-100">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div class="flex flex-wrap items-center gap-2.5 sm:gap-3">
+            <!-- Filter Bulan -->
+            <div>
+              <label for="filterMonth" class="block text-[10px] font-semibold text-slate-400 mb-1">Bulan</label>
+              <select
+                id="filterMonth"
+                onchange="applyCashbonFilters()"
+                class="px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-medium text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-sm"
+              >
+                {monthsList.map((m) => (
+                  <option value={m.val}>{m.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <!-- Filter Tahun -->
+            <div>
+              <label for="filterYear" class="block text-[10px] font-semibold text-slate-400 mb-1">Tahun</label>
+              <select
+                id="filterYear"
+                onchange="applyCashbonFilters()"
+                class="px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-medium text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-sm"
+              >
+                <option value="all">Semua Tahun</option>
+                {uniqueYears.map((y) => (
+                  <option value={y}>{y}</option>
+                ))}
+              </select>
+            </div>
+
+            <!-- Filter Status -->
+            <div>
+              <label for="filterStatus" class="block text-[10px] font-semibold text-slate-400 mb-1">Status</label>
+              <select
+                id="filterStatus"
+                onchange="applyCashbonFilters()"
+                class="px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-medium text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-sm"
+              >
+                <option value="all">Semua Status</option>
+                <option value="pending">Menunggu</option>
+                <option value="rejected">Tolak</option>
+                <option value="settled">Lunas Terpotong Gaji</option>
+                <option value="approved">Disetujui</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Reset Filter Button -->
+          <div class="self-end">
+            <button
+              type="button"
+              onclick="resetCashbonFilter()"
+              class="px-3.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 text-slate-600 text-xs font-semibold transition shadow-sm cursor-pointer"
+            >
+              Reset Filter
+            </button>
+          </div>
+        </div>
       </div>
 
       <div class="divide-y divide-slate-100">
@@ -246,33 +336,49 @@ for (const rp of repayments) {
             const myRepayments = repaymentsByCashbonId.get(r.id) || [];
             let statusBadge = 'bg-slate-100 text-slate-700';
             let statusText = r.status;
+            let filterCategory = 'pending';
 
             if (r.status === 'pending') {
               statusBadge = 'bg-amber-100 text-amber-800 border-amber-200';
               statusText = 'Menunggu Review Admin';
+              filterCategory = 'pending';
             } else if (r.status === 'approved' || r.status === 'partial') {
               if (r.disbursed_at) {
                 if (r.remaining_balance > 0) {
                   statusBadge = 'bg-emerald-100 text-emerald-800 border-emerald-200';
                   statusText = r.status === 'approved' ? 'Uang Cair • Menunggu Potong Gaji' : 'Disetujui Sebagian • Uang Cair';
+                  filterCategory = 'approved';
                 } else {
                   statusBadge = 'bg-purple-100 text-purple-800 border-purple-200';
                   statusText = 'Lunas Terpotong Gaji';
+                  filterCategory = 'settled';
                 }
               } else {
                 statusBadge = 'bg-blue-100 text-blue-800 border-blue-200';
                 statusText = r.status === 'approved' ? 'Disetujui Penuh • Belum Cair' : 'Disetujui Sebagian • Belum Cair';
+                filterCategory = 'approved';
               }
             } else if (r.status === 'settled') {
               statusBadge = 'bg-purple-100 text-purple-800 border-purple-200';
               statusText = 'Lunas Terpotong Gaji';
+              filterCategory = 'settled';
             } else if (r.status === 'rejected') {
               statusBadge = 'bg-rose-100 text-rose-800 border-rose-200';
               statusText = 'Pengajuan Ditolak';
+              filterCategory = 'rejected';
             }
 
+            const createdAtStr = typeof r.created_at === 'string' ? r.created_at : new Date(r.created_at).toISOString();
+            const cardYear = createdAtStr.slice(0, 4);
+            const cardMonth = createdAtStr.slice(5, 7);
+
             return (
-              <div class="p-4 sm:p-5 hover:bg-slate-50/60 transition space-y-3">
+              <div
+                class="cashbon-card p-4 sm:p-5 hover:bg-slate-50/60 transition space-y-3"
+                data-month={cardMonth}
+                data-year={cardYear}
+                data-status={filterCategory}
+              >
                 <!-- Baris 1: Status & Tanggal Pengajuan -->
                 <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div class="flex items-center gap-2">
@@ -425,6 +531,9 @@ for (const rp of repayments) {
             );
           })
         )}
+        <div id="cashbonEmptyFiltered" class="hidden p-8 text-center text-slate-400 text-xs">
+          Tidak ada pengajuan cashbon untuk filter yang dipilih.
+        </div>
       </div>
     </div>
 
@@ -665,5 +774,70 @@ for (const rp of repayments) {
         alert(err.message);
       }
     }
+
+    window.applyCashbonFilters = function () {
+      const monthSelect = document.getElementById('filterMonth');
+      const yearSelect = document.getElementById('filterYear');
+      const statusSelect = document.getElementById('filterStatus');
+      if (!monthSelect || !yearSelect || !statusSelect) return;
+
+      const monthVal = monthSelect.value;
+      const yearVal = yearSelect.value;
+      const statusVal = statusSelect.value;
+
+      const cards = Array.from(document.querySelectorAll('.cashbon-card'));
+      let visibleCount = 0;
+
+      cards.forEach((card) => {
+        const cardMonth = card.dataset.month;
+        const cardYear = card.dataset.year;
+        const cardStatus = card.dataset.status;
+
+        let match = true;
+        if (monthVal !== 'all' && cardMonth !== monthVal) {
+          match = false;
+        }
+        if (yearVal !== 'all' && cardYear !== yearVal) {
+          match = false;
+        }
+        if (statusVal !== 'all' && cardStatus !== statusVal) {
+          match = false;
+        }
+
+        if (match) {
+          card.style.display = '';
+          visibleCount++;
+        } else {
+          card.style.display = 'none';
+        }
+      });
+
+      const badgeEl = document.getElementById('cashbonCountBadge');
+      if (badgeEl) {
+        if (monthVal === 'all' && yearVal === 'all' && statusVal === 'all') {
+          badgeEl.textContent = `${visibleCount} Pengajuan`;
+        } else {
+          badgeEl.textContent = `${visibleCount} dari ${cards.length} Pengajuan`;
+        }
+      }
+
+      const emptyFilteredEl = document.getElementById('cashbonEmptyFiltered');
+      if (emptyFilteredEl) {
+        emptyFilteredEl.classList.toggle('hidden', cards.length === 0 || visibleCount > 0);
+      }
+    };
+
+    window.resetCashbonFilter = function () {
+      const monthSelect = document.getElementById('filterMonth');
+      const yearSelect = document.getElementById('filterYear');
+      const statusSelect = document.getElementById('filterStatus');
+      if (monthSelect) monthSelect.value = 'all';
+      if (yearSelect) yearSelect.value = 'all';
+      if (statusSelect) statusSelect.value = 'all';
+      window.applyCashbonFilters();
+    };
+
+    // Apply on load
+    window.applyCashbonFilters();
   </script>
 </Layout>
