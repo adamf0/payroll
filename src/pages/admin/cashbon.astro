@@ -76,6 +76,17 @@ const employees = await queryAll<{ id: number; nik: string; name: string; positi
           Tinjau permohonan pinjaman karyawan, setujui nominal, pantau pencairan, dan riwayat pelunasan.
         </p>
       </div>
+
+      <div class="flex items-center gap-2">
+        <button
+          type="button"
+          onclick="exportCashbonToXLSX()"
+          class="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-bold bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 shadow-sm transition cursor-pointer"
+        >
+          <svg class="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+          Export Excel (.xlsx)
+        </button>
+      </div>
     </div>
 
     <!-- Summary Metrics -->
@@ -476,7 +487,150 @@ const employees = await queryAll<{ id: number; nik: string; name: string; positi
     </div>
   </div>
 
-  <script is:inline>
+  <script is:inline src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+
+  <script is:inline define:vars={{ cashbons }}>
+    async function getXLSX() {
+      if (window.XLSX) return window.XLSX;
+      return new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js';
+        s.onload = () => resolve(window.XLSX);
+        s.onerror = () => {
+          const s2 = document.createElement('script');
+          s2.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+          s2.onload = () => resolve(window.XLSX);
+          s2.onerror = () => reject(new Error('Gagal memuat pustaka XLSX'));
+          document.head.appendChild(s2);
+        };
+        document.head.appendChild(s);
+      });
+    }
+
+    window.exportCashbonToXLSX = async function () {
+      if (!cashbons || cashbons.length === 0) {
+        alert('Tidak ada data cashbon untuk diekspor');
+        return;
+      }
+
+      try {
+        const XLSXLib = await getXLSX();
+        if (!XLSXLib) throw new Error('Modul XLSX tidak tersedia');
+
+        const q = (document.getElementById('searchInput')?.value || '').toLowerCase().trim();
+        const itemsToExport = cashbons.filter((c) => {
+          let matchStatus = false;
+          if (activeFilter === 'all') matchStatus = true;
+          else if (activeFilter === 'pending') matchStatus = c.status === 'pending';
+          else if (activeFilter === 'active') matchStatus = (c.status === 'approved' || c.status === 'partial') && Boolean(c.disbursed_at) && c.remaining_balance > 0;
+          else if (activeFilter === 'settled') matchStatus = c.status === 'settled';
+          else if (activeFilter === 'rejected') matchStatus = c.status === 'rejected';
+
+          const searchText = `${c.emp_name} ${c.emp_nik} ${c.reason || ''} ${c.admin_notes || ''}`.toLowerCase();
+          const matchSearch = !q || searchText.includes(q);
+
+          return matchStatus && matchSearch;
+        });
+
+        if (itemsToExport.length === 0) {
+          alert('Tidak ada data yang sesuai filter untuk diekspor');
+          return;
+        }
+
+        const headers = [
+          'No Bukti',
+          'Tanggal Pengajuan',
+          'Nama Karyawan',
+          'NIK',
+          'Jabatan / Posisi',
+          'Nominal Pengajuan (Rp)',
+          'Nominal Disetujui (Rp)',
+          'Sudah Dibayar (Rp)',
+          'Sisa Saldo (Rp)',
+          'Status',
+          'Tanggal Pencairan',
+          'Alasan Pengajuan',
+          'Catatan Admin',
+        ];
+
+        let sumReq = 0;
+        let sumApp = 0;
+        let sumRep = 0;
+        let sumBal = 0;
+
+        const rows = itemsToExport.map((c) => {
+          sumReq += c.amount_requested;
+          sumApp += c.amount_approved;
+          sumRep += c.total_repaid;
+          sumBal += c.remaining_balance;
+
+          let statusLabel = c.status;
+          if (c.status === 'pending') statusLabel = 'Menunggu Persetujuan';
+          else if (c.status === 'approved') statusLabel = c.disbursed_at ? 'Disetujui & Dicairkan' : 'Disetujui Penuh';
+          else if (c.status === 'partial') statusLabel = c.disbursed_at ? 'Disetujui Sebagian & Dicairkan' : 'Disetujui Sebagian';
+          else if (c.status === 'settled') statusLabel = 'Lunas';
+          else if (c.status === 'rejected') statusLabel = 'Ditolak';
+
+          return [
+            `CB-${c.id}`,
+            c.created_at ? c.created_at.slice(0, 10) : '-',
+            c.emp_name || '-',
+            c.emp_nik || '-',
+            c.emp_position || '-',
+            c.amount_requested,
+            c.amount_approved,
+            c.total_repaid,
+            c.remaining_balance,
+            statusLabel,
+            c.disbursed_at ? c.disbursed_at.slice(0, 10) : '-',
+            c.reason || '-',
+            c.admin_notes || '-',
+          ];
+        });
+
+        // Baris total rekap
+        rows.push([
+          'TOTAL',
+          '',
+          `${itemsToExport.length} Data`,
+          '',
+          '',
+          sumReq,
+          sumApp,
+          sumRep,
+          sumBal,
+          '',
+          '',
+          '',
+          '',
+        ]);
+
+        const ws = XLSXLib.utils.aoa_to_sheet([headers, ...rows]);
+        ws['!cols'] = [
+          { wch: 14 },
+          { wch: 16 },
+          { wch: 24 },
+          { wch: 14 },
+          { wch: 18 },
+          { wch: 22 },
+          { wch: 22 },
+          { wch: 18 },
+          { wch: 18 },
+          { wch: 26 },
+          { wch: 18 },
+          { wch: 30 },
+          { wch: 30 },
+        ];
+
+        const wb = XLSXLib.utils.book_new();
+        XLSXLib.utils.book_append_sheet(wb, ws, 'Data Cashbon');
+        const filename = `Laporan_Cashbon_${new Date().toISOString().slice(0, 10)}.xlsx`;
+        XLSXLib.writeFile(wb, filename);
+      } catch (err) {
+        alert(err.message || 'Gagal mengekspor data ke Excel');
+      }
+    };
+
     function formatRupiahInput(el) {
       const cursor = el.selectionStart;
       const prevLen = el.value.length;
