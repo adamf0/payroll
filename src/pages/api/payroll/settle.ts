@@ -17,6 +17,25 @@ export const POST: APIRoute = async ({ request, cookies }) => {
     const todayYmd = getJakartaTodayStr();
     const currentYearMonth = todayYmd.substring(0, 7);
 
+    // Helper to get active cashbon balance for an employee
+    async function getActiveCashbonBalance(empId: number): Promise<number> {
+      const activeCashbons = await queryAll<{
+        id: number;
+        amount_approved: number;
+        total_repaid: number;
+      }>(
+        `SELECT c.id, c.amount_approved, COALESCE(SUM(r.amount), 0) AS total_repaid
+         FROM cashbon_requests c
+         LEFT JOIN cashbon_repayments r ON c.id = r.cashbon_id
+         WHERE c.employee_id = ? AND c.status IN ('approved', 'partial') AND c.disbursed_at IS NOT NULL
+         GROUP BY c.id, c.amount_approved
+         HAVING total_repaid < c.amount_approved
+         ORDER BY c.created_at ASC`,
+        [empId]
+      );
+      return activeCashbons.reduce((sum, c) => sum + (Number(c.amount_approved) - Number(c.total_repaid)), 0);
+    }
+
     // Helper for applying cashbon repayments
     async function applyCashbonRepayment(empId: number, settlementId: number, deductionAmount: number) {
       if (deductionAmount <= 0) return;
@@ -64,24 +83,35 @@ export const POST: APIRoute = async ({ request, cookies }) => {
 
       for (const item of data.items) {
         const empId = Number(item.employee_id);
-        const amount = Number(item.amount_paid);
-        if (!empId || amount < 0) continue;
+        if (!empId) continue;
 
         const pStart = item.period_start || `${currentYearMonth}-01`;
         const pEnd = item.period_end || todayYmd;
         const scheme = item.scheme || 'bulanan';
         const units = Number(item.total_units) || 1;
-        const rate = Number(item.rate) || amount;
+        const rate = Number(item.rate) || 0;
         const allowance = Number(item.allowance) || 0;
         const overtime = Number(item.overtime_pay) || 0;
         const bonus = Number(item.bonus) || 0;
-        const cashbon = Number(item.cashbon_deduction) || 0;
+        const basePay = (rate * units) || Number(item.amount_paid) || 0;
+        const totalGross = basePay + allowance + overtime + bonus;
+
+        let cashbon = Number(item.cashbon_deduction) || 0;
+        // Auto-deduct active cashbon if not explicitly passed
+        if (cashbon <= 0) {
+          const activeBalance = await getActiveCashbonBalance(empId);
+          if (activeBalance > 0) {
+            cashbon = Math.min(totalGross, activeBalance);
+          }
+        }
+
+        const netAmount = Math.max(0, totalGross - cashbon);
         const notes = item.notes || `Pembayaran gaji batch (${pStart} s/d ${pEnd})`;
 
         const res = await execute(
           `INSERT INTO payroll_settlements (employee_id, period_start, period_end, scheme, total_units, rate, amount_paid, allowance, overtime_pay, bonus, cashbon_deduction, notes)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [empId, pStart, pEnd, scheme, units, rate, amount, allowance, overtime, bonus, cashbon, notes]
+          [empId, pStart, pEnd, scheme, units, rate, netAmount, allowance, overtime, bonus, cashbon, notes]
         );
 
         if (res.insertId && cashbon > 0) {
@@ -89,7 +119,7 @@ export const POST: APIRoute = async ({ request, cookies }) => {
         }
 
         settledCount++;
-        totalAmount += amount;
+        totalAmount += netAmount;
       }
 
       return new Response(
@@ -117,7 +147,19 @@ export const POST: APIRoute = async ({ request, cookies }) => {
     const allw = Number(allowance) || 0;
     const ovt = Number(overtime_pay) || 0;
     const bns = Number(bonus) || 0;
-    const cbDed = Number(cashbon_deduction) || 0;
+    let cbDed = Number(cashbon_deduction) || 0;
+    let netAmount = Number(amount_paid);
+
+    // Auto-deduct active cashbon if not explicitly passed
+    if (cbDed <= 0 && data.auto_deduct_cashbon !== false) {
+      const activeBalance = await getActiveCashbonBalance(Number(employee_id));
+      if (activeBalance > 0) {
+        const gross = (Number(rate) * Number(total_units)) || netAmount;
+        const totalGross = gross + allw + ovt + bns;
+        cbDed = Math.min(totalGross, activeBalance);
+        netAmount = Math.max(0, totalGross - cbDed);
+      }
+    }
 
     const res = await execute(
       `INSERT INTO payroll_settlements (employee_id, period_start, period_end, scheme, total_units, rate, amount_paid, allowance, overtime_pay, bonus, cashbon_deduction, notes)
@@ -129,7 +171,7 @@ export const POST: APIRoute = async ({ request, cookies }) => {
         scheme || 'bulanan',
         Number(total_units) || 1,
         Number(rate) || Number(amount_paid),
-        Number(amount_paid),
+        netAmount,
         allw,
         ovt,
         bns,

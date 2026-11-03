@@ -346,6 +346,7 @@ const settlements = await queryAll<{
                     data-emp-real-name={grp.employee.name}
                     data-scheme={grp.employee.scheme}
                     data-emp-name={grp.employee.name.toLowerCase()}
+                    data-active-cashbon={cashbonMap.get(grp.employee.id) || 0}
                     style={hariIniItems.length > 0 ? '' : 'display: none;'}
                   >
                     <td colspan="9" class="py-2.5 px-4">
@@ -1232,6 +1233,7 @@ const settlements = await queryAll<{
     window.payGroupBills = async function(empId) {
       const headerRow = document.querySelector(`.group-header-row[data-emp-id="${empId}"]`);
       const empName = headerRow ? headerRow.dataset.empRealName : 'Karyawan';
+      const activeCashbon = Number(headerRow?.dataset.activeCashbon) || 0;
 
       const visibleRowCbs = Array.from(document.querySelectorAll(`.payroll-row[data-emp-id="${empId}"]`))
         .filter(r => r.style.display !== 'none')
@@ -1254,9 +1256,18 @@ const settlements = await queryAll<{
         notes: `Pembayaran ${cb.dataset.scheme} untuk ${empName} (${cb.dataset.periodStart} s/d ${cb.dataset.periodEnd})`,
       }));
 
-      const totalAmount = items.reduce((acc, it) => acc + it.amount_paid, 0);
+      const totalGross = items.reduce((acc, it) => acc + it.amount_paid, 0);
+      const cashbonDeduction = Math.min(totalGross, activeCashbon);
+      const netPay = Math.max(0, totalGross - cashbonDeduction);
 
-      if (!confirm(`Konfirmasi pembayaran ${items.length} tagihan untuk ${empName}?\nTotal Tagihan: ${formatRupiahJs(totalAmount)}`)) {
+      let confirmMsg = `Konfirmasi pembayaran ${items.length} tagihan untuk ${empName}?\n`;
+      if (cashbonDeduction > 0) {
+        confirmMsg += `\n• Total Gaji Kotor: ${formatRupiahJs(totalGross)}\n• Potongan Cashbon: -${formatRupiahJs(cashbonDeduction)}\n• Total Gaji Bersih: ${formatRupiahJs(netPay)}`;
+      } else {
+        confirmMsg += `\nTotal Pembayaran: ${formatRupiahJs(totalGross)}`;
+      }
+
+      if (!confirm(confirmMsg)) {
         return;
       }
 
@@ -1301,9 +1312,27 @@ const settlements = await queryAll<{
         notes: `Pembayaran ${cb.dataset.scheme} untuk ${cb.dataset.empName} (${cb.dataset.periodStart} s/d ${cb.dataset.periodEnd})`,
       }));
 
-      const totalAmount = items.reduce((acc, it) => acc + it.amount_paid, 0);
+      const totalGross = items.reduce((acc, it) => acc + it.amount_paid, 0);
 
-      if (!confirm(`Konfirmasi pembayaran ${items.length} tagihan terpilih?\nTotal Pembayaran: ${formatRupiahJs(totalAmount)}`)) {
+      // Hitung total potongan cashbon untuk semua karyawan yang terpilih
+      const empIds = [...new Set(items.map(it => it.employee_id))];
+      let totalCashbonDed = 0;
+      empIds.forEach(id => {
+        const hRow = document.querySelector(`.group-header-row[data-emp-id="${id}"]`);
+        const cb = Number(hRow?.dataset.activeCashbon) || 0;
+        const empGross = items.filter(it => it.employee_id === id).reduce((sum, it) => sum + it.amount_paid, 0);
+        totalCashbonDed += Math.min(empGross, cb);
+      });
+      const netTotal = Math.max(0, totalGross - totalCashbonDed);
+
+      let confirmMsg = `Konfirmasi pembayaran ${items.length} tagihan terpilih?\n`;
+      if (totalCashbonDed > 0) {
+        confirmMsg += `\n• Total Gaji Kotor: ${formatRupiahJs(totalGross)}\n• Total Potongan Cashbon: -${formatRupiahJs(totalCashbonDed)}\n• Total Bersih Dibayarkan: ${formatRupiahJs(netTotal)}`;
+      } else {
+        confirmMsg += `\nTotal Pembayaran: ${formatRupiahJs(totalGross)}`;
+      }
+
+      if (!confirm(confirmMsg)) {
         return;
       }
 
@@ -1416,6 +1445,7 @@ const settlements = await queryAll<{
             overtime_pay: overtime,
             bonus,
             cashbon_deduction: cashbonDed,
+            auto_deduct_cashbon: false,
             period_start: pStart,
             period_end: pEnd,
             notes,
