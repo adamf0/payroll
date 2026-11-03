@@ -1576,6 +1576,8 @@ const settlements = await queryAll<{
       w.document.close();
       w.focus();
       w.print();
+    };
+
     window.voidSettlement = async function (id, name) {
       if (!confirm(`Batalkan pembayaran slip gaji #PAY-${id} untuk ${name}?\n\nPerhatian: Slip gaji akan dihapus dan potongan cashbon (jika ada) akan otomatis dikembalikan ke saldo pinjaman aktif karyawan.`)) {
         return;
