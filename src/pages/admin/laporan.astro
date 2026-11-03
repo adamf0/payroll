@@ -118,11 +118,11 @@ const selectedMonthName = monthsList.find((m) => m.val === selectedMonth)?.label
       <div class="flex items-center gap-2">
         <button
           type="button"
-          onclick="exportToCSV()"
-          class="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 shadow-sm transition"
+          onclick="exportToXLSX()"
+          class="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 shadow-sm transition cursor-pointer"
         >
           <svg class="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-          Unduh CSV / Excel
+          Unduh Excel (.xlsx)
         </button>
         <button
           type="button"
@@ -315,46 +315,123 @@ const selectedMonthName = monthsList.find((m) => m.val === selectedMonth)?.label
     </div>
   </div>
 
-  <script is:inline define:vars={{ settlements, selectedMonthName, selectedYear, totalNetPaid, totalBaseWage, totalCashbonDeducted }}>
-    window.exportToCSV = function () {
+  <script is:inline src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+
+  <script is:inline define:vars={{ settlements, selectedMonthName, selectedYear, totalNetPaid, totalBaseWage, totalCashbonDeducted, totalAllowance, totalOvertime, totalBonus }}>
+    async function getXLSX() {
+      if (window.XLSX) return window.XLSX;
+      return new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js';
+        s.onload = () => resolve(window.XLSX);
+        s.onerror = () => {
+          const s2 = document.createElement('script');
+          s2.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+          s2.onload = () => resolve(window.XLSX);
+          s2.onerror = () => reject(new Error('Gagal memuat pustaka XLSX. Periksa koneksi internet Anda.'));
+          document.head.appendChild(s2);
+        };
+        document.head.appendChild(s);
+      });
+    }
+
+    window.exportToXLSX = async function () {
       if (!settlements || settlements.length === 0) {
         alert('Tidak ada data untuk diekspor');
         return;
       }
 
-      let csv = 'No Bukti;Karyawan;NIK;Posisi;Periode Mulai;Periode Selesai;Skema;Gaji Pokok;Tunjangan;Lembur;Bonus;Potongan Cashbon;Gaji Bersih;Tanggal Bayar;Catatan\r\n';
+      try {
+        const XLSXLib = await getXLSX();
+        if (!XLSXLib) throw new Error('Modul XLSX tidak tersedia');
 
-      settlements.forEach((s) => {
-        const base = Number(s.rate) * Number(s.total_units) || Number(s.amount_paid);
-        const row = [
-          `#PAY-${s.id}`,
-          `"${(s.name || '').replace(/"/g, '""')}"`,
-          `"${s.nik}"`,
-          `"${(s.position || '').replace(/"/g, '""')}"`,
-          s.period_start,
-          s.period_end,
-          s.scheme,
-          base,
-          Number(s.allowance) || 0,
-          Number(s.overtime_pay) || 0,
-          Number(s.bonus) || 0,
-          Number(s.cashbon_deduction) || 0,
-          Number(s.amount_paid),
-          s.settled_at,
-          `"${(s.notes || '').replace(/"/g, '""')}"`,
+        const headers = [
+          'No Bukti',
+          'Nama Karyawan',
+          'NIK',
+          'Jabatan / Posisi',
+          'Periode Mulai',
+          'Periode Selesai',
+          'Sistem Gaji',
+          'Gaji Pokok (Rp)',
+          'Tunjangan (Rp)',
+          'Lembur (Rp)',
+          'Bonus (Rp)',
+          'Potongan Cashbon (Rp)',
+          'Gaji Bersih / THP (Rp)',
+          'Tanggal Bayar',
+          'Catatan',
         ];
-        csv += row.join(';') + '\r\n';
-      });
 
-      const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.setAttribute('href', url);
-      link.setAttribute('download', `Laporan_Gaji_${selectedMonthName}_${selectedYear}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+        const rows = settlements.map((s) => {
+          const base = Number(s.rate) * Number(s.total_units) || Number(s.amount_paid);
+          return [
+            `PAY-${s.id}`,
+            s.name || '-',
+            s.nik || '-',
+            s.position || '-',
+            s.period_start || '-',
+            s.period_end || '-',
+            s.scheme ? s.scheme.replace('_', ' ') : '-',
+            base,
+            Number(s.allowance) || 0,
+            Number(s.overtime_pay) || 0,
+            Number(s.bonus) || 0,
+            Number(s.cashbon_deduction) || 0,
+            Number(s.amount_paid) || 0,
+            s.settled_at ? s.settled_at.slice(0, 19).replace('T', ' ') : '-',
+            s.notes || '-',
+          ];
+        });
+
+        const totalRow = [
+          'TOTAL KESELURUHAN',
+          '',
+          '',
+          '',
+          '',
+          '',
+          '',
+          Number(totalBaseWage) || 0,
+          Number(totalAllowance) || 0,
+          Number(totalOvertime) || 0,
+          Number(totalBonus) || 0,
+          Number(totalCashbonDeducted) || 0,
+          Number(totalNetPaid) || 0,
+          '',
+          '',
+        ];
+
+        const wsData = [headers, ...rows, totalRow];
+        const worksheet = XLSXLib.utils.aoa_to_sheet(wsData);
+
+        worksheet['!cols'] = [
+          { wch: 12 }, // No Bukti
+          { wch: 22 }, // Nama
+          { wch: 14 }, // NIK
+          { wch: 18 }, // Jabatan
+          { wch: 14 }, // Periode Mulai
+          { wch: 14 }, // Periode Selesai
+          { wch: 14 }, // Skema
+          { wch: 16 }, // Gaji Pokok
+          { wch: 14 }, // Tunjangan
+          { wch: 14 }, // Lembur
+          { wch: 14 }, // Bonus
+          { wch: 22 }, // Potongan Cashbon
+          { wch: 22 }, // Gaji Bersih
+          { wch: 20 }, // Tanggal Bayar
+          { wch: 25 }, // Catatan
+        ];
+
+        const workbook = XLSXLib.utils.book_new();
+        XLSXLib.utils.book_append_sheet(workbook, worksheet, 'Laporan Payroll');
+        XLSXLib.writeFile(workbook, `Laporan_Gaji_${selectedMonthName}_${selectedYear}.xlsx`);
+      } catch (err) {
+        alert(err.message || 'Gagal mengekspor file Excel');
+      }
     };
+
+    window.exportToCSV = window.exportToXLSX;
 
     window.printReport = function () {
       window.print();
