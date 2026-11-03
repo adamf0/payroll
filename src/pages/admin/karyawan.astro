@@ -56,9 +56,27 @@ const employees = await queryAll<EmployeeWithAccount>(`
 
     <!-- Table Container -->
     <div class="bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden">
-      <div class="p-4 border-b border-slate-100 flex items-center justify-between">
+      <div class="p-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div class="text-xs font-bold text-slate-900">
-          Total: <span class="text-indigo-600 font-extrabold">{employees.length} Karyawan</span>
+          Total: <span id="empCountLabel" class="text-indigo-600 font-extrabold">{employees.length} Karyawan</span>
+        </div>
+
+        <div class="relative w-full sm:w-72">
+          <input
+            type="text"
+            id="searchEmployeeInput"
+            placeholder="Cari nama karyawan..."
+            class="w-full pl-9 pr-8 py-2 rounded-xl border border-slate-200 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50/50 focus:bg-white transition"
+          />
+          <svg class="w-4 h-4 text-slate-400 absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+          <button
+            type="button"
+            id="clearSearchBtn"
+            class="hidden absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 transition cursor-pointer"
+            title="Hapus pencarian"
+          >
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
         </div>
       </div>
 
@@ -77,7 +95,7 @@ const employees = await queryAll<EmployeeWithAccount>(`
           </thead>
           <tbody class="divide-y divide-slate-100" id="emp-table-body">
             {employees.map((emp) => (
-              <tr class="hover:bg-slate-50/80 transition-colors">
+              <tr class="emp-row hover:bg-slate-50/80 transition-colors" data-name={emp.name.toLowerCase()} data-nik={emp.nik.toLowerCase()}>
                 <td class="py-3.5 px-4">
                   <div class="flex items-center gap-2">
                     <span class="font-bold text-slate-900 text-sm">{emp.name}</span>
@@ -184,6 +202,11 @@ const employees = await queryAll<EmployeeWithAccount>(`
                 </td>
               </tr>
             ))}
+            <tr id="emptySearchRow" class="hidden">
+              <td colspan="7" class="text-center py-10 text-slate-400 text-xs">
+                Tidak ada nama karyawan yang cocok dengan pencarian.
+              </td>
+            </tr>
           </tbody>
         </table>
       </div>
@@ -425,6 +448,57 @@ const employees = await queryAll<EmployeeWithAccount>(`
     const accModal = document.getElementById('account-modal');
     const accForm = document.getElementById('account-form');
     const accError = document.getElementById('account-error');
+
+    // Real-time search for employee names & NIK
+    const searchInput = document.getElementById('searchEmployeeInput');
+    const clearBtn = document.getElementById('clearSearchBtn');
+    const empRows = document.querySelectorAll('.emp-row');
+    const emptyRow = document.getElementById('emptySearchRow');
+    const countLabel = document.getElementById('empCountLabel');
+    const totalEmployees = empRows.length;
+
+    if (searchInput) {
+      searchInput.addEventListener('input', () => {
+        const query = searchInput.value.trim().toLowerCase();
+        if (clearBtn) {
+          if (query) clearBtn.classList.remove('hidden');
+          else clearBtn.classList.add('hidden');
+        }
+
+        let visibleCount = 0;
+        empRows.forEach((row) => {
+          const name = row.getAttribute('data-name') || '';
+          const nik = row.getAttribute('data-nik') || '';
+          if (!query || name.includes(query) || nik.includes(query)) {
+            row.style.display = '';
+            visibleCount++;
+          } else {
+            row.style.display = 'none';
+          }
+        });
+
+        if (emptyRow) {
+          if (visibleCount === 0) emptyRow.classList.remove('hidden');
+          else emptyRow.classList.add('hidden');
+        }
+
+        if (countLabel) {
+          if (query) {
+            countLabel.textContent = `${visibleCount} dari ${totalEmployees} Karyawan`;
+          } else {
+            countLabel.textContent = `${totalEmployees} Karyawan`;
+          }
+        }
+      });
+
+      if (clearBtn) {
+        clearBtn.addEventListener('click', () => {
+          searchInput.value = '';
+          searchInput.dispatchEvent(new Event('input'));
+          searchInput.focus();
+        });
+      }
+    }
 
     window.openModal = function () {
       form.reset();
