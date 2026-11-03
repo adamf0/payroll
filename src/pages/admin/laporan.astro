@@ -102,12 +102,13 @@ const monthsList = [
 ];
 
 const selectedMonthName = monthsList.find((m) => m.val === selectedMonth)?.label || selectedMonth;
+const selectedEmployee = employees.find((e) => e.id.toString() === selectedEmpId);
 ---
 
 <Layout title="Laporan Keuangan & Penggajian" activeNav="admin-laporan">
   <div class="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
-    <!-- Header -->
-    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+    <!-- Header Web (Disembunyikan saat Cetak PDF) -->
+    <div id="reportHeader" class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 print:hidden">
       <div>
         <h1 class="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">Laporan Keuangan & Payroll</h1>
         <p class="text-xs sm:text-sm text-slate-500 mt-1">
@@ -127,7 +128,7 @@ const selectedMonthName = monthsList.find((m) => m.val === selectedMonth)?.label
         <button
           type="button"
           onclick="printReport()"
-          class="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition"
+          class="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition cursor-pointer"
         >
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
           Cetak Laporan
@@ -135,8 +136,8 @@ const selectedMonthName = monthsList.find((m) => m.val === selectedMonth)?.label
       </div>
     </div>
 
-    <!-- Filter Bar -->
-    <div class="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-4 mb-6">
+    <!-- Filter Bar (Disembunyikan saat Cetak PDF) -->
+    <div id="filterCard" class="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-4 mb-6 print:hidden">
       <form method="GET" class="flex flex-wrap items-center gap-3">
         <div>
           <label class="block text-[10px] font-semibold text-slate-400 mb-1">Bulan</label>
@@ -190,8 +191,8 @@ const selectedMonthName = monthsList.find((m) => m.val === selectedMonth)?.label
       </form>
     </div>
 
-    <!-- Summary Metrics Grid -->
-    <div id="printSummaryGrid" class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+    <!-- Summary Metrics Grid (Disembunyikan saat Cetak PDF agar fokus pada tabel lengkap) -->
+    <div id="printSummaryGrid" class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6 print:hidden">
       <div class="bg-indigo-900 text-white p-4 rounded-2xl shadow-sm">
         <span class="text-xs text-indigo-200 font-medium block">Total Pengeluaran Bersih</span>
         <div class="text-xl sm:text-2xl font-extrabold mt-1">{formatRupiah(totalNetPaid)}</div>
@@ -223,9 +224,29 @@ const selectedMonthName = monthsList.find((m) => m.val === selectedMonth)?.label
       </div>
     </div>
 
+    <!-- Kop Judul Laporan Khusus Cetak PDF -->
+    <div class="hidden print:block mb-4 pb-2 border-b-2 border-slate-800">
+      <div class="flex items-center justify-between">
+        <div>
+          <h1 class="text-base font-extrabold text-slate-900 uppercase tracking-wide">
+            Laporan Rekapitulasi Penggajian & Keuangan Karyawan
+          </h1>
+          <p class="text-xs text-slate-700 mt-0.5 font-medium">
+            Periode: <strong>{selectedMonthName} {selectedYear}</strong>
+            {selectedEmployee ? <span> • Karyawan: <strong>{selectedEmployee.name} ({selectedEmployee.nik})</strong></span> : ' • Seluruh Karyawan'}
+            <span> • Total Transaksi: <strong>{settlements.length} Data</strong></span>
+          </p>
+        </div>
+        <div class="text-right text-[10px] text-slate-500">
+          <div class="font-bold text-slate-800">Fermi Payroll & Presensi</div>
+          <div>Dicetak: {new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</div>
+        </div>
+      </div>
+    </div>
+
     <!-- Detailed Table -->
-    <div id="printTableContainer" class="bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden">
-      <div class="p-4 border-b border-slate-100 flex items-center justify-between">
+    <div id="printTableContainer" class="bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden print:border-none print:shadow-none print:rounded-none print:m-0 print:p-0 print:overflow-visible">
+      <div class="p-4 border-b border-slate-100 flex items-center justify-between print:hidden">
         <h2 class="text-sm font-bold text-slate-900">
           Rincian Penggajian Periode: {selectedMonthName} {selectedYear}
         </h2>
@@ -437,4 +458,99 @@ const selectedMonthName = monthsList.find((m) => m.val === selectedMonth)?.label
       window.print();
     };
   </script>
+
+  <style is:global>
+    @page {
+      size: landscape;
+      margin: 8mm 10mm;
+    }
+
+    @media print {
+      /* Sembunyikan semua navigasi web, navbar, footer, drawer, tombol, dan kartu */
+      header,
+      footer,
+      nav,
+      .no-print,
+      #reportHeader,
+      #filterCard,
+      #printSummaryGrid,
+      #mobileMenu,
+      #mobileMenuBtn,
+      #toast-container {
+        display: none !important;
+      }
+
+      body {
+        background: #ffffff !important;
+        color: #000000 !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+
+      .max-w-7xl {
+        max-width: 100% !important;
+        padding: 0 !important;
+        margin: 0 !important;
+      }
+
+      #printTableContainer {
+        border: none !important;
+        box-shadow: none !important;
+        border-radius: 0 !important;
+        overflow: visible !important;
+        margin: 0 !important;
+        padding: 0 !important;
+      }
+
+      .overflow-x-auto {
+        overflow: visible !important;
+        display: block !important;
+      }
+
+      #reportTable {
+        width: 100% !important;
+        border-collapse: collapse !important;
+        font-size: 8.5px !important;
+        table-layout: auto !important;
+      }
+
+      #reportTable thead {
+        display: table-header-group !important;
+      }
+
+      #reportTable thead th {
+        background-color: #f1f5f9 !important;
+        color: #0f172a !important;
+        font-weight: 700 !important;
+        border: 1px solid #94a3b8 !important;
+        padding: 4px 5px !important;
+        white-space: nowrap !important;
+        text-transform: uppercase !important;
+      }
+
+      #reportTable tbody td {
+        border: 1px solid #cbd5e1 !important;
+        padding: 3.5px 5px !important;
+        color: #1e293b !important;
+      }
+
+      #reportTable tfoot {
+        display: table-footer-group !important;
+      }
+
+      #reportTable tfoot td {
+        background-color: #f8fafc !important;
+        color: #0f172a !important;
+        font-weight: 800 !important;
+        border: 1px solid #94a3b8 !important;
+        padding: 4.5px 5px !important;
+      }
+
+      #reportTable tr {
+        page-break-inside: avoid !important;
+      }
+    }
+  </style>
 </Layout>
