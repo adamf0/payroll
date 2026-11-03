@@ -306,7 +306,7 @@ const employees = await queryAll<{ id: number; nik: string; name: string; positi
                             </button>
                             <button
                               type="button"
-                              onclick={`rejectRequest(${c.id}, '${c.emp_name.replace(/'/g, "\\'")}')`}
+                              onclick={`openRejectModal(${c.id}, '${c.emp_name.replace(/'/g, "\\'")}', ${c.amount_requested})`}
                               class="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 transition"
                             >
                               Tolak
@@ -423,6 +423,63 @@ const employees = await queryAll<{ id: number; nik: string; name: string; positi
             class="px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white transition shadow-sm"
           >
             Simpan Keputusan
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal Tolak Permohonan Cashbon dengan Catatan -->
+  <div id="rejectModal" class="hidden fixed inset-0 z-50 overflow-y-auto bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl border border-slate-100">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+        <h3 class="text-base font-bold text-rose-600 flex items-center gap-2">
+          <span class="w-6 h-6 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center text-xs">✕</span>
+          <span>Tolak Permohonan Cashbon</span>
+        </h3>
+        <button type="button" onclick="closeRejectModal()" class="text-slate-400 hover:text-slate-600 text-lg font-bold">&times;</button>
+      </div>
+
+      <form id="rejectForm" onsubmit="submitReject(event)" class="mt-4 space-y-4">
+        <input type="hidden" id="rejCashbonId" />
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Karyawan</label>
+          <div id="rejEmpName" class="font-bold text-sm text-slate-900 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200"></div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Nominal Diajukan</label>
+          <div id="rejReqAmount" class="font-extrabold text-sm text-slate-800 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200"></div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">
+            Alasan / Catatan Penolakan <span class="text-rose-500">*</span>
+          </label>
+          <textarea
+            id="rejAdminNotes"
+            rows="3"
+            required
+            placeholder="Jelaskan alasan penolakan untuk karyawan (misal: kuota cashbon bulan ini penuh, masa kerja belum cukup, dll)..."
+            class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-rose-500 placeholder:text-slate-400"
+          ></textarea>
+        </div>
+
+        <div class="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onclick="closeRejectModal()"
+            class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 transition"
+          >
+            Batal
+          </button>
+          <button
+            type="submit"
+            id="rejSubmitBtn"
+            class="px-4 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white transition shadow-sm"
+          >
+            Tolak Cashbon
           </button>
         </div>
       </form>
@@ -651,7 +708,7 @@ const employees = await queryAll<{ id: number; nik: string; name: string; positi
       }
     };
 
-    function formatRupiahInput(el) {
+    window.formatRupiahInput = function (el) {
       const cursor = el.selectionStart;
       const prevLen = el.value.length;
       const raw = el.value.replace(/\D/g, '');
@@ -666,26 +723,28 @@ const employees = await queryAll<{ id: number; nik: string; name: string; positi
       try {
         el.setSelectionRange(newPos, newPos);
       } catch (e) {}
-    }
+    };
 
-    function getRawNumber(input) {
+    window.getRawNumber = function (input) {
       if (!input) return 0;
       const str = typeof input === 'object' && 'value' in input ? input.value : String(input);
       return Number(str.replace(/\D/g, '')) || 0;
-    }
+    };
 
     let activeFilter = 'all';
 
-    function setFilterStatus(status, btn) {
+    window.setFilterStatus = function (status, btn) {
       activeFilter = status;
       document.querySelectorAll('#statusFilterTabs .filter-tab').forEach((el) => {
         el.className = 'filter-tab px-3 py-1.5 rounded-xl text-xs font-bold transition bg-white text-slate-700 border border-slate-200 hover:bg-slate-50';
       });
-      btn.className = 'filter-tab px-3 py-1.5 rounded-xl text-xs font-bold transition bg-slate-900 text-white shadow-sm';
-      applyFilterTable();
-    }
+      if (btn) {
+        btn.className = 'filter-tab px-3 py-1.5 rounded-xl text-xs font-bold transition bg-slate-900 text-white shadow-sm';
+      }
+      window.applyFilterTable();
+    };
 
-    function applyFilterTable() {
+    window.applyFilterTable = function () {
       const q = (document.getElementById('searchInput')?.value || '').toLowerCase().trim();
       const rows = document.querySelectorAll('.cashbon-row');
 
@@ -705,11 +764,11 @@ const employees = await queryAll<{ id: number; nik: string; name: string; positi
 
         row.style.display = matchStatus && matchSearch ? '' : 'none';
       });
-    }
+    };
 
     // Review Modal Handlers
     let currentReqAmount = 0;
-    function openReviewModal(id, empName, amount) {
+    window.openReviewModal = function (id, empName, amount) {
       document.getElementById('revCashbonId').value = id;
       document.getElementById('revEmpName').textContent = empName;
       document.getElementById('revReqAmount').textContent = 'Rp ' + Number(amount).toLocaleString('id-ID');
@@ -718,16 +777,16 @@ const employees = await queryAll<{ id: number; nik: string; name: string; positi
 
       const radios = document.getElementsByName('decision');
       if (radios.length > 0) radios[0].checked = true;
-      toggleDecisionType();
+      window.toggleDecisionType();
 
       document.getElementById('reviewModal').classList.remove('hidden');
-    }
+    };
 
-    function closeReviewModal() {
+    window.closeReviewModal = function () {
       document.getElementById('reviewModal').classList.add('hidden');
-    }
+    };
 
-    function toggleDecisionType() {
+    window.toggleDecisionType = function () {
       const decision = document.querySelector('input[name="decision"]:checked')?.value;
       const partialContainer = document.getElementById('partialAmountContainer');
       if (decision === 'approve_partial') {
@@ -736,9 +795,9 @@ const employees = await queryAll<{ id: number; nik: string; name: string; positi
         partialContainer.classList.add('hidden');
         document.getElementById('revApprovedAmount').value = currentReqAmount ? new Intl.NumberFormat('id-ID').format(Number(currentReqAmount)) : '';
       }
-    }
+    };
 
-    async function submitReview(e) {
+    window.submitReview = async function (e) {
       e.preventDefault();
       const id = document.getElementById('revCashbonId').value;
       const decision = document.querySelector('input[name="decision"]:checked')?.value;
@@ -750,7 +809,7 @@ const employees = await queryAll<{ id: number; nik: string; name: string; positi
 
       if (decision === 'approve_partial') {
         action = 'partial';
-        approvedAmount = getRawNumber(document.getElementById('revApprovedAmount'));
+        approvedAmount = window.getRawNumber(document.getElementById('revApprovedAmount'));
         if (!approvedAmount || approvedAmount <= 0) {
           alert('Masukkan nominal disetujui yang valid');
           return;
@@ -781,11 +840,43 @@ const employees = await queryAll<{ id: number; nik: string; name: string; positi
         btn.disabled = false;
         btn.textContent = 'Simpan Keputusan';
       }
-    }
+    };
 
-    async function rejectRequest(id, empName) {
-      const reason = prompt(`Tolak permohonan cashbon dari ${empName}?\nMasukkan alasan penolakan (opsional):`);
-      if (reason === null) return; // cancelled
+    // Reject Modal Handlers (dengan Catatan)
+    window.openRejectModal = function (id, empName, amount) {
+      const idEl = document.getElementById('rejCashbonId');
+      const nameEl = document.getElementById('rejEmpName');
+      const amtEl = document.getElementById('rejReqAmount');
+      const notesEl = document.getElementById('rejAdminNotes');
+      const modal = document.getElementById('rejectModal');
+
+      if (idEl) idEl.value = id;
+      if (nameEl) nameEl.textContent = empName;
+      if (amtEl) amtEl.textContent = 'Rp ' + Number(amount || 0).toLocaleString('id-ID');
+      if (notesEl) notesEl.value = '';
+      if (modal) modal.classList.remove('hidden');
+    };
+
+    window.closeRejectModal = function () {
+      const modal = document.getElementById('rejectModal');
+      if (modal) modal.classList.add('hidden');
+    };
+
+    window.submitReject = async function (e) {
+      e.preventDefault();
+      const id = document.getElementById('rejCashbonId')?.value;
+      const adminNotes = (document.getElementById('rejAdminNotes')?.value || '').trim();
+      const btn = document.getElementById('rejSubmitBtn');
+
+      if (!adminNotes) {
+        alert('Mohon masukkan alasan / catatan penolakan');
+        return;
+      }
+
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Menolak...';
+      }
 
       try {
         const res = await fetch('/api/cashbon/action', {
@@ -794,20 +885,29 @@ const employees = await queryAll<{ id: number; nik: string; name: string; positi
           body: JSON.stringify({
             id: Number(id),
             action: 'reject',
-            admin_notes: reason.trim(),
+            admin_notes: adminNotes,
           }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Gagal menolak cashbon');
 
-        window.showToast?.('Permohonan cashbon telah ditolak');
+        window.showToast?.(data.message || 'Permohonan cashbon telah ditolak');
         setTimeout(() => location.reload(), 500);
       } catch (err) {
         alert(err.message);
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = 'Tolak Cashbon';
+        }
       }
-    }
+    };
 
-    async function markDisbursed(id, empName, amount) {
+    // Backwards-compatible alias
+    window.rejectRequest = function (id, empName, amount) {
+      window.openRejectModal(id, empName, amount || 0);
+    };
+
+    window.markDisbursed = async function (id, empName, amount) {
       if (!confirm(`Konfirmasi pencairan dana cashbon untuk ${empName} sebesar Rp ${Number(amount).toLocaleString('id-ID')}?`)) {
         return;
       }
@@ -829,23 +929,23 @@ const employees = await queryAll<{ id: number; nik: string; name: string; positi
       } catch (err) {
         alert(err.message);
       }
-    }
+    };
 
     // Direct Cashbon Modal Handlers
-    function openDirectCashbonModal() {
+    window.openDirectCashbonModal = function () {
       document.getElementById('directCashbonForm').reset();
       document.getElementById('dirAutoDisburse').checked = true;
       document.getElementById('directCashbonModal').classList.remove('hidden');
-    }
+    };
 
-    function closeDirectCashbonModal() {
+    window.closeDirectCashbonModal = function () {
       document.getElementById('directCashbonModal').classList.add('hidden');
-    }
+    };
 
-    async function submitDirectCashbon(e) {
+    window.submitDirectCashbon = async function (e) {
       e.preventDefault();
       const empId = document.getElementById('dirEmpId').value;
-      const amount = getRawNumber(document.getElementById('dirAmount'));
+      const amount = window.getRawNumber(document.getElementById('dirAmount'));
       const reason = document.getElementById('dirReason').value.trim();
       const autoDisburse = document.getElementById('dirAutoDisburse').checked;
       const btn = document.getElementById('dirSubmitBtn');
@@ -880,6 +980,6 @@ const employees = await queryAll<{ id: number; nik: string; name: string; positi
         btn.disabled = false;
         btn.textContent = 'Simpan Cashbon';
       }
-    }
+    };
   </script>
 </Layout>
