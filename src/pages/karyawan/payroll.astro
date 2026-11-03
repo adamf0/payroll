@@ -2,7 +2,7 @@
 import Layout from '../../layouts/Layout.astro';
 import { getCurrentUser } from '../../lib/auth';
 import { queryOne, queryAll } from '../../lib/db';
-import { computeEmployeeRealtimePayroll, formatRupiah, formatIndonesianDate } from '../../lib/payroll';
+import { computeEmployeeRealtimePayroll, formatRupiah, formatIndonesianDate, getJakartaNow } from '../../lib/payroll';
 import type { Employee, PayrollSettlement } from '../../lib/types';
 
 const currentUser = await getCurrentUser(Astro.cookies);
@@ -13,7 +13,37 @@ if (!currentUser || currentUser.role !== 'karyawan' || !currentUser.employee_id)
 const employee = await queryOne<Employee>('SELECT * FROM employees WHERE id = ?', [currentUser.employee_id]);
 if (!employee) return Astro.redirect('/login');
 
-const payrollInfo = await computeEmployeeRealtimePayroll(employee);
+const jakartaNow = getJakartaNow();
+const currentYear = parseInt(jakartaNow.dateStr.substring(0, 4), 10);
+const currentMonthStr = jakartaNow.dateStr.substring(5, 7);
+
+// Default date bounds for current month
+const daysInCurrentMonth = new Date(currentYear, parseInt(currentMonthStr, 10), 0).getDate();
+const defaultStartDate = `${currentYear}-${currentMonthStr}-01`;
+const defaultEndDate = `${currentYear}-${currentMonthStr}-${String(daysInCurrentMonth).padStart(2, '0')}`;
+
+const payrollInfo = await computeEmployeeRealtimePayroll(employee, defaultStartDate, defaultEndDate);
+
+// Fetch all unbilled attendance records for this employee (for client-side dynamic filtering)
+const allUnbilledRecords = await queryAll<{
+  id: number;
+  date_str: string;
+  duration_minutes: number;
+  status: string;
+}>(`
+  SELECT a.id, 
+         DATE_FORMAT(a.date, '%Y-%m-%d') as date_str,
+         a.duration_minutes, a.status
+  FROM attendance a
+  WHERE a.employee_id = ?
+    AND NOT EXISTS (
+      SELECT 1 FROM payroll_settlements s
+      WHERE s.employee_id = a.employee_id
+        AND a.date >= s.period_start
+        AND a.date <= s.period_end
+    )
+  ORDER BY a.date ASC
+`, [employee.id]);
 
 // Fetch settled payouts for this employee
 const settlements = await queryAll<PayrollSettlement>(
@@ -51,7 +81,7 @@ const monthsList = [
   { val: '12', label: 'Desember' },
 ];
 
-const currentYear = new Date().getFullYear();
+const currentMonthLabel = monthsList.find((m) => m.val === currentMonthStr)?.label || 'Bulan Ini';
 const yearsList = [currentYear - 1, currentYear, currentYear + 1];
 ---
 
@@ -74,20 +104,94 @@ const yearsList = [currentYear - 1, currentYear, currentYear + 1];
       </div>
     </div>
 
+    <!-- Filter Bar: Pilih Bulan / Tanggal Spesifik (Mengontrol Gaji Berjalan & Riwayat Slip) -->
+    <div class="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-sm mb-6">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div class="flex flex-wrap items-center gap-2.5 sm:gap-3">
+          <!-- Dropdown Bulan -->
+          <div>
+            <label for="filterMonth" class="block text-[10px] font-semibold text-slate-400 mb-1">Pilih Bulan</label>
+            <select
+              id="filterMonth"
+              onchange="onMonthOrYearChange()"
+              class="px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-medium text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-sm"
+            >
+              {monthsList.map((m) => (
+                <option value={m.val} selected={m.val === currentMonthStr}>{m.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <!-- Dropdown Tahun -->
+          <div>
+            <label for="filterYear" class="block text-[10px] font-semibold text-slate-400 mb-1">Tahun</label>
+            <select
+              id="filterYear"
+              onchange="onMonthOrYearChange()"
+              class="px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-medium text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-sm"
+            >
+              {yearsList.map((y) => (
+                <option value={y} selected={y === currentYear}>{y}</option>
+              ))}
+            </select>
+          </div>
+
+          <div class="hidden sm:block text-slate-300 font-bold text-xs self-end pb-2">atau</div>
+
+          <!-- Tanggal Spesifik -->
+          <div>
+            <label class="block text-[10px] font-semibold text-slate-400 mb-1">Pilih Tanggal Spesifik</label>
+            <div class="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 shadow-sm focus-within:ring-2 focus-within:ring-indigo-500">
+              <input
+                type="date"
+                id="filterStartDate"
+                onchange="onSpecificDateChange()"
+                class="text-xs font-medium text-slate-700 bg-transparent focus:outline-none cursor-pointer"
+                title="Dari Tanggal"
+              />
+              <span class="text-slate-300 text-xs">s/d</span>
+              <input
+                type="date"
+                id="filterEndDate"
+                onchange="onSpecificDateChange()"
+                class="text-xs font-medium text-slate-700 bg-transparent focus:outline-none cursor-pointer"
+                title="Sampai Tanggal"
+              />
+            </div>
+          </div>
+        </div>
+
+        <!-- Reset Filter Button -->
+        <div class="self-end sm:self-center">
+          <button
+            type="button"
+            onclick="resetSlipFilter()"
+            class="px-3.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 text-slate-600 text-xs font-semibold transition shadow-sm cursor-pointer"
+          >
+            Reset Filter
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Gaji Berjalan Card -->
     <div class="bg-white rounded-3xl p-6 sm:p-7 border border-slate-200/80 shadow-sm mb-8">
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-100">
         <div>
-          <span class="text-xs font-semibold text-slate-400 block mb-1">
-            Gaji Berjalan Periode Ini
+          <span id="gaji-berjalan-period-title" class="text-xs font-semibold text-slate-400 block mb-1">
+            Gaji Berjalan Periode Ini ({currentMonthLabel} {currentYear})
           </span>
-          <div class="text-3xl font-extrabold text-indigo-600">
+          <div id="gaji-berjalan-amount" class="text-3xl font-extrabold text-indigo-600">
             {payrollInfo.currency_formatted}
           </div>
-          <p class="text-xs text-slate-500 mt-1">
-            {employee.scheme === 'per_jam' || employee.scheme === 'harian'
-              ? 'Gaji berjalan yang siap dicairkan hari itu juga'
-              : 'Gaji yang sudah terkumpul (akan cair pada tanggal gajian)'}
+          <p id="gaji-berjalan-desc" class="text-xs text-slate-500 mt-1">
+            {payrollInfo.accrued_amount > 0
+              ? (employee.scheme === 'per_jam' || employee.scheme === 'harian'
+                ? 'Gaji berjalan yang siap dicairkan hari itu juga'
+                : 'Gaji yang sudah terkumpul (akan cair pada tanggal gajian)')
+              : (employee.scheme === 'per_jam' || employee.scheme === 'harian'
+                ? 'Tidak ada jam kerja berjalan yang belum dicairkan pada periode ini'
+                : 'Tidak ada gaji berjalan belum dicairkan pada periode ini')}
           </p>
         </div>
 
@@ -128,16 +232,18 @@ const yearsList = [currentYear - 1, currentYear, currentYear + 1];
 
         <div>
           <span class="text-slate-400 block mb-1">Data Kehadiran Periode Ini</span>
-          <div class="text-sm font-bold text-slate-900">
+          <div id="gaji-berjalan-attendance-label" class="text-sm font-bold text-slate-900">
             {payrollInfo.attendance_label}
           </div>
           {payrollInfo.attendance_badge && (
-            <span class={`inline-block px-2 py-0.5 rounded text-[10px] font-bold mt-1 ${
+            <span id="gaji-berjalan-attendance-badge" class={`inline-block px-2 py-0.5 rounded text-[10px] font-bold mt-1 ${
               payrollInfo.attendance_badge_type === 'warning'
                 ? 'bg-amber-100 text-amber-800'
                 : payrollInfo.attendance_badge_type === 'danger'
                 ? 'bg-rose-100 text-rose-800'
-                : 'bg-emerald-100 text-emerald-800'
+                : payrollInfo.attendance_badge_type === 'success'
+                ? 'bg-emerald-100 text-emerald-800'
+                : 'bg-slate-100 text-slate-700'
             }`}>
               {payrollInfo.attendance_badge}
             </span>
@@ -179,76 +285,6 @@ const yearsList = [currentYear - 1, currentYear, currentYear + 1];
           <span id="badge-total-slips" class="text-xs px-3 py-1.5 rounded-xl bg-slate-100 text-slate-600 font-semibold">
             {settlements.length} Slip Tersedia
           </span>
-        </div>
-      </div>
-
-      <!-- Filter Bar: Pilih Bulan / Tanggal Spesifik -->
-      <div class="p-4 bg-slate-50/70 border-b border-slate-100">
-        <div class="flex flex-wrap items-center justify-between gap-3">
-          <div class="flex flex-wrap items-center gap-2.5 sm:gap-3">
-            <!-- Dropdown Bulan -->
-            <div>
-              <label for="filterMonth" class="block text-[10px] font-semibold text-slate-400 mb-1">Pilih Bulan</label>
-              <select
-                id="filterMonth"
-                onchange="onMonthOrYearChange()"
-                class="px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-medium text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-sm"
-              >
-                {monthsList.map((m) => (
-                  <option value={m.val}>{m.label}</option>
-                ))}
-              </select>
-            </div>
-
-            <!-- Dropdown Tahun -->
-            <div>
-              <label for="filterYear" class="block text-[10px] font-semibold text-slate-400 mb-1">Tahun</label>
-              <select
-                id="filterYear"
-                onchange="onMonthOrYearChange()"
-                class="px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-medium text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-sm"
-              >
-                {yearsList.map((y) => (
-                  <option value={y} selected={y === currentYear}>{y}</option>
-                ))}
-              </select>
-            </div>
-
-            <div class="hidden sm:block text-slate-300 font-bold text-xs self-end pb-2">atau</div>
-
-            <!-- Tanggal Spesifik -->
-            <div>
-              <label class="block text-[10px] font-semibold text-slate-400 mb-1">Pilih Tanggal Spesifik</label>
-              <div class="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 shadow-sm focus-within:ring-2 focus-within:ring-indigo-500">
-                <input
-                  type="date"
-                  id="filterStartDate"
-                  onchange="applySlipFilters()"
-                  class="text-xs font-medium text-slate-700 bg-transparent focus:outline-none cursor-pointer"
-                  title="Dari Tanggal"
-                />
-                <span class="text-slate-300 text-xs">s/d</span>
-                <input
-                  type="date"
-                  id="filterEndDate"
-                  onchange="applySlipFilters()"
-                  class="text-xs font-medium text-slate-700 bg-transparent focus:outline-none cursor-pointer"
-                  title="Sampai Tanggal"
-                />
-              </div>
-            </div>
-          </div>
-
-          <!-- Reset Filter Button -->
-          <div class="self-end">
-            <button
-              type="button"
-              onclick="resetSlipFilter()"
-              class="px-3.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 text-slate-600 text-xs font-semibold transition shadow-sm cursor-pointer"
-            >
-              Reset Filter
-            </button>
-          </div>
         </div>
       </div>
 
@@ -487,7 +523,17 @@ const yearsList = [currentYear - 1, currentYear, currentYear + 1];
     </div>
   </div>
 
-  <script is:inline define:vars={{ employeeName: employee.name, employeeNik: employee.nik, employeePosition: employee.position || '', employeeScheme: employee.scheme.replace('_', ' ') }}>
+  <script is:inline define:vars={{
+    employeeName: employee.name,
+    employeeNik: employee.nik,
+    employeePosition: employee.position || '',
+    employeeScheme: employee.scheme,
+    employeeSchemeLabel: employee.scheme.replace('_', ' '),
+    baseRate: Number(employee.base_rate) || 0,
+    defaultMonthVal: currentMonthStr,
+    defaultYearVal: currentYear,
+    unbilledRecords: allUnbilledRecords,
+  }}>
     let activeSlipData = null;
 
     function formatRupiahJS(num) {
@@ -613,44 +659,173 @@ const yearsList = [currentYear - 1, currentYear, currentYear + 1];
     });
 
     window.onMonthOrYearChange = function () {
+      const startInput = document.getElementById('filterStartDate');
+      const endInput = document.getElementById('filterEndDate');
+      if (startInput) startInput.value = '';
+      if (endInput) endInput.value = '';
+      window.applyFilters();
+    };
+
+    window.onSpecificDateChange = function () {
+      window.applyFilters();
+    };
+
+    window.resetSlipFilter = function () {
       const monthSelect = document.getElementById('filterMonth');
       const yearSelect = document.getElementById('filterYear');
       const startInput = document.getElementById('filterStartDate');
       const endInput = document.getElementById('filterEndDate');
 
-      const monthVal = monthSelect.value;
-      const yearVal = yearSelect.value;
+      if (monthSelect) monthSelect.value = defaultMonthVal;
+      if (yearSelect) yearSelect.value = String(defaultYearVal);
+      if (startInput) startInput.value = '';
+      if (endInput) endInput.value = '';
 
-      if (monthVal !== 'all') {
-        const y = parseInt(yearVal, 10);
-        const m = parseInt(monthVal, 10);
-        const lastDay = new Date(y, m, 0).getDate();
-        startInput.value = `${y}-${String(m).padStart(2, '0')}-01`;
-        endInput.value = `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
-      } else {
-        startInput.value = '';
-        endInput.value = '';
-      }
-
-      window.applySlipFilters();
-    };
-
-    window.resetSlipFilter = function () {
-      document.getElementById('filterMonth').value = 'all';
-      document.getElementById('filterStartDate').value = '';
-      document.getElementById('filterEndDate').value = '';
-      window.applySlipFilters();
+      window.applyFilters();
     };
 
     window.applySlipFilters = function () {
+      window.applyFilters();
+    };
+
+    window.applyFilters = function () {
       const startFilter = document.getElementById('filterStartDate')?.value || '';
       const endFilter = document.getElementById('filterEndDate')?.value || '';
       const monthFilter = document.getElementById('filterMonth')?.value || 'all';
       const yearFilter = document.getElementById('filterYear')?.value || '';
 
-      const rows = Array.from(document.querySelectorAll('.slip-row'));
-      if (rows.length === 0) return;
+      let activeStart = '';
+      let activeEnd = '';
+      let periodLabel = '';
 
+      if (startFilter || endFilter) {
+        activeStart = startFilter;
+        activeEnd = endFilter;
+        if (startFilter && endFilter) {
+          periodLabel = `${formatDateID(startFilter)} s/d ${formatDateID(endFilter)}`;
+        } else if (startFilter) {
+          periodLabel = `Mulai ${formatDateID(startFilter)}`;
+        } else {
+          periodLabel = `Sampai ${formatDateID(endFilter)}`;
+        }
+      } else if (monthFilter !== 'all') {
+        const y = parseInt(yearFilter, 10);
+        const m = parseInt(monthFilter, 10);
+        const lastDay = new Date(y, m, 0).getDate();
+        activeStart = `${y}-${String(m).padStart(2, '0')}-01`;
+        activeEnd = `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+        const months = ['', 'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+        periodLabel = `${months[m]} ${y}`;
+      } else {
+        periodLabel = 'Semua Periode';
+      }
+
+      // 1. Recalculate Gaji Berjalan Card
+      let filteredUnbilled = unbilledRecords || [];
+      if (activeStart && activeEnd) {
+        filteredUnbilled = unbilledRecords.filter((r) => r.date_str >= activeStart && r.date_str <= activeEnd);
+      } else if (activeStart) {
+        filteredUnbilled = unbilledRecords.filter((r) => r.date_str >= activeStart);
+      } else if (activeEnd) {
+        filteredUnbilled = unbilledRecords.filter((r) => r.date_str <= activeEnd);
+      }
+
+      const totalPresentDays = filteredUnbilled.length;
+      const totalMinutes = filteredUnbilled.reduce((sum, r) => sum + (Number(r.duration_minutes) || 480), 0);
+      const totalHoursWorked = parseFloat((totalMinutes / 60).toFixed(1));
+
+      let accruedAmount = 0;
+      let attendanceLabel = '';
+      let attendanceBadge = '';
+      let attendanceBadgeType = 'info';
+      let descText = '';
+
+      if (employeeScheme === 'per_jam') {
+        accruedAmount = Math.round(totalHoursWorked * baseRate);
+        attendanceLabel = `${totalHoursWorked} Jam Kerja`;
+        if (accruedAmount > 0) {
+          attendanceBadge = 'Bisa Bayar Hari Ini';
+          attendanceBadgeType = 'success';
+          descText = 'Gaji berjalan yang siap dicairkan hari itu juga';
+        } else {
+          attendanceBadge = 'Sudah Dicairkan / Nihil';
+          attendanceBadgeType = 'info';
+          descText = 'Tidak ada jam kerja berjalan yang belum dicairkan pada periode ini';
+        }
+      } else if (employeeScheme === 'harian') {
+        accruedAmount = Math.round(totalPresentDays * baseRate);
+        attendanceLabel = `${totalPresentDays} Hari Hadir`;
+        if (accruedAmount > 0) {
+          attendanceBadge = 'Bisa Bayar Hari Ini';
+          attendanceBadgeType = 'success';
+          descText = 'Gaji berjalan yang siap dicairkan hari itu juga';
+        } else {
+          attendanceBadge = 'Sudah Dicairkan / Nihil';
+          attendanceBadgeType = 'info';
+          descText = 'Tidak ada kehadiran berjalan yang belum dicairkan pada periode ini';
+        }
+      } else if (employeeScheme === 'mingguan') {
+        const dailyRate = Math.round(baseRate / 6);
+        accruedAmount = Math.round(totalPresentDays * dailyRate);
+        attendanceLabel = `${totalPresentDays} Hari Kerja`;
+        if (accruedAmount > 0) {
+          attendanceBadge = `Sedang Berjalan (${totalPresentDays} Hari)`;
+          attendanceBadgeType = 'info';
+          descText = 'Gaji yang sudah terkumpul (akan cair pada tanggal gajian)';
+        } else {
+          attendanceBadge = 'Nihil';
+          attendanceBadgeType = 'info';
+          descText = 'Tidak ada catatan kerja belum dicairkan pada periode ini';
+        }
+      } else if (employeeScheme === 'bulanan') {
+        const dailyRate = Math.round(baseRate / 26);
+        accruedAmount = totalPresentDays >= 26 ? baseRate : Math.round((totalPresentDays / 26) * baseRate);
+        attendanceLabel = `${totalPresentDays} / 26 Hari Kerja`;
+        if (accruedAmount > 0) {
+          attendanceBadge = `Sedang Berjalan (${totalPresentDays} Hari)`;
+          attendanceBadgeType = 'info';
+          descText = 'Gaji yang sudah terkumpul (akan cair pada tanggal gajian)';
+        } else {
+          attendanceBadge = 'Nihil';
+          attendanceBadgeType = 'info';
+          descText = 'Tidak ada catatan kerja belum dicairkan pada periode ini';
+        }
+      }
+
+      const periodTitleEl = document.getElementById('gaji-berjalan-period-title');
+      if (periodTitleEl) {
+        periodTitleEl.textContent = `Gaji Berjalan Periode Ini (${periodLabel})`;
+      }
+
+      const amountEl = document.getElementById('gaji-berjalan-amount');
+      if (amountEl) {
+        amountEl.textContent = formatRupiahJS(accruedAmount);
+      }
+
+      const descEl = document.getElementById('gaji-berjalan-desc');
+      if (descEl) {
+        descEl.textContent = descText;
+      }
+
+      const attLabelEl = document.getElementById('gaji-berjalan-attendance-label');
+      if (attLabelEl) {
+        attLabelEl.textContent = attendanceLabel;
+      }
+
+      const attBadgeEl = document.getElementById('gaji-berjalan-attendance-badge');
+      if (attBadgeEl) {
+        attBadgeEl.textContent = attendanceBadge;
+        attBadgeEl.className = `inline-block px-2 py-0.5 rounded text-[10px] font-bold mt-1 ${
+          attendanceBadgeType === 'success'
+            ? 'bg-emerald-100 text-emerald-800'
+            : attendanceBadgeType === 'warning'
+            ? 'bg-amber-100 text-amber-800'
+            : 'bg-slate-100 text-slate-700'
+        }`;
+      }
+
+      // 2. Filter Riwayat Slip Gaji table rows
+      const rows = Array.from(document.querySelectorAll('.slip-row'));
       let visibleCount = 0;
       let totalGross = 0;
       let totalCashbon = 0;
@@ -665,30 +840,16 @@ const yearsList = [currentYear - 1, currentYear, currentYear + 1];
         const net = Number(row.dataset.net) || 0;
 
         let match = true;
-
-        if (startFilter) {
+        if (activeStart && activeEnd) {
           const checkDate = settledDate || periodEnd;
-          if (checkDate && checkDate < startFilter && periodEnd < startFilter) {
-            match = false;
-          }
-        }
-
-        if (endFilter && match) {
+          if (checkDate < activeStart && periodEnd < activeStart) match = false;
+          if (checkDate > activeEnd && periodStart > activeEnd) match = false;
+        } else if (activeStart) {
+          const checkDate = settledDate || periodEnd;
+          if (checkDate < activeStart && periodEnd < activeStart) match = false;
+        } else if (activeEnd) {
           const checkDate = settledDate || periodStart;
-          if (checkDate && checkDate > endFilter && periodStart > endFilter) {
-            match = false;
-          }
-        }
-
-        if (!startFilter && !endFilter && monthFilter !== 'all') {
-          const ymPrefix = `${yearFilter}-${monthFilter}`;
-          const inMonth =
-            settledDate.startsWith(ymPrefix) ||
-            periodEnd.startsWith(ymPrefix) ||
-            periodStart.startsWith(ymPrefix);
-          if (!inMonth) {
-            match = false;
-          }
+          if (checkDate > activeEnd && periodStart > activeEnd) match = false;
         }
 
         if (match) {
@@ -834,7 +995,7 @@ const yearsList = [currentYear - 1, currentYear, currentYear + 1];
               <div style="text-align: right;">
                 <div style="color: #64748b; font-size: 11px;">Periode Filter:</div>
                 <div style="font-size: 13px; font-weight: bold; color: #4338ca;">${periodLabel}</div>
-                <div style="color: #64748b;">Skema: ${employeeScheme}</div>
+                <div style="color: #64748b;">Skema: ${employeeSchemeLabel}</div>
               </div>
             </div>
 
@@ -879,7 +1040,7 @@ const yearsList = [currentYear - 1, currentYear, currentYear + 1];
     };
 
     // Initialize filter on load
-    window.applySlipFilters();
+    window.applyFilters();
   </script>
 
 </Layout>

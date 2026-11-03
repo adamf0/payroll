@@ -171,19 +171,16 @@ export function getWeekRange(dStr: string): { monStr: string; satStr: string } {
 /**
  * Computes real-time accrued payroll for a single employee (personal summary)
  */
-export async function computeEmployeeRealtimePayroll(employee: Employee): Promise<RealtimePayrollItem> {
+export async function computeEmployeeRealtimePayroll(
+  employee: Employee,
+  filterStart?: string,
+  filterEnd?: string
+): Promise<RealtimePayrollItem> {
   const now = new Date();
   const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
-  const unbilledRecords = await queryAll<{
-    id: number;
-    date_str: string;
-    check_in_str: string;
-    check_out_str: string;
-    duration_minutes: number;
-    status: string;
-  }>(`
+  let sql = `
     SELECT a.id, 
            DATE_FORMAT(a.date, '%Y-%m-%d') as date_str,
            TIME_FORMAT(a.check_in, '%H:%i') as check_in_str,
@@ -197,11 +194,31 @@ export async function computeEmployeeRealtimePayroll(employee: Employee): Promis
           AND a.date >= s.period_start
           AND a.date <= s.period_end
       )
-    ORDER BY a.date ASC
-  `, [employee.id]);
+  `;
+  const params: any[] = [employee.id];
 
-  const periodStart = unbilledRecords[0]?.date_str || `${currentMonthStr}-01`;
-  const periodEnd = unbilledRecords[unbilledRecords.length - 1]?.date_str || todayStr;
+  if (filterStart) {
+    sql += ` AND a.date >= ?`;
+    params.push(filterStart);
+  }
+  if (filterEnd) {
+    sql += ` AND a.date <= ?`;
+    params.push(filterEnd);
+  }
+
+  sql += ` ORDER BY a.date ASC`;
+
+  const unbilledRecords = await queryAll<{
+    id: number;
+    date_str: string;
+    check_in_str: string;
+    check_out_str: string;
+    duration_minutes: number;
+    status: string;
+  }>(sql, params);
+
+  const periodStart = unbilledRecords[0]?.date_str || filterStart || `${currentMonthStr}-01`;
+  const periodEnd = unbilledRecords[unbilledRecords.length - 1]?.date_str || filterEnd || todayStr;
   const totalPresentDays = unbilledRecords.length;
   const totalMinutes = unbilledRecords.reduce((sum, r) => sum + (r.duration_minutes || 480), 0);
   const totalHoursWorked = parseFloat((totalMinutes / 60).toFixed(1));
@@ -220,17 +237,29 @@ export async function computeEmployeeRealtimePayroll(employee: Employee): Promis
     case 'per_jam': {
       accruedAmount = Math.round(totalHoursWorked * baseRate);
       attendanceLabel = `${totalHoursWorked} Jam Kerja`;
-      attendanceBadge = 'Bisa Bayar Hari Ini';
-      attendanceBadgeType = 'success';
-      breakdown = `${totalHoursWorked} jam × ${formatRupiah(baseRate)}/jam (Hari itu juga bisa dibayar)`;
+      if (accruedAmount > 0) {
+        attendanceBadge = 'Bisa Bayar Hari Ini';
+        attendanceBadgeType = 'success';
+        breakdown = `${totalHoursWorked} jam × ${formatRupiah(baseRate)}/jam (Hari itu juga bisa dibayar)`;
+      } else {
+        attendanceBadge = 'Sudah Dicairkan / Nihil';
+        attendanceBadgeType = 'info';
+        breakdown = 'Tidak ada jam kerja belum dibayar pada periode ini';
+      }
       break;
     }
     case 'harian': {
       accruedAmount = Math.round(totalPresentDays * baseRate);
       attendanceLabel = `${totalPresentDays} Hari Hadir`;
-      attendanceBadge = 'Bisa Bayar Hari Ini';
-      attendanceBadgeType = 'success';
-      breakdown = `${totalPresentDays} hari × ${formatRupiah(baseRate)}/hari (Hari itu juga bisa dibayar)`;
+      if (accruedAmount > 0) {
+        attendanceBadge = 'Bisa Bayar Hari Ini';
+        attendanceBadgeType = 'success';
+        breakdown = `${totalPresentDays} hari × ${formatRupiah(baseRate)}/hari (Hari itu juga bisa dibayar)`;
+      } else {
+        attendanceBadge = 'Sudah Dicairkan / Nihil';
+        attendanceBadgeType = 'info';
+        breakdown = 'Tidak ada kehadiran belum dibayar pada periode ini';
+      }
       break;
     }
     case 'mingguan': {
