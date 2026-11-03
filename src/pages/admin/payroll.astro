@@ -69,19 +69,48 @@ const employeeGroups = Array.from(employeeGroupsMap.values()).sort((a, b) => a.e
 // Unique employees untuk dropdown filter
 const uniqueEmployees = employeeGroups.map((g) => g.employee);
 
-// Fetch recent settlements
+// Fetch active cashbon balances per employee
+const activeCashbonRows = await queryAll<{
+  employee_id: number;
+  balance: number;
+}>(
+  `SELECT c.employee_id, SUM(c.amount_approved - COALESCE(r.total_repaid, 0)) AS balance
+   FROM cashbon_requests c
+   LEFT JOIN (
+     SELECT cashbon_id, SUM(amount) AS total_repaid
+     FROM cashbon_repayments
+     GROUP BY cashbon_id
+   ) r ON c.id = r.cashbon_id
+   WHERE c.status IN ('approved', 'partial') AND c.disbursed_at IS NOT NULL
+   GROUP BY c.employee_id
+   HAVING balance > 0`
+);
+const cashbonMap = new Map<number, number>();
+for (const row of activeCashbonRows) {
+  cashbonMap.set(row.employee_id, Number(row.balance) || 0);
+}
+
+// Fetch recent settlements with breakdown components
 const settlements = await queryAll<{
   id: number;
+  employee_id: number;
   name: string;
   nik: string;
+  position: string | null;
   period_start: string;
   period_end: string;
   scheme: string;
   total_units: number;
+  rate: number;
   amount_paid: number;
+  allowance: number;
+  overtime_pay: number;
+  bonus: number;
+  cashbon_deduction: number;
   settled_at: string;
+  notes: string | null;
 }>(
-  `SELECT s.*, e.name, e.nik
+  `SELECT s.*, e.name, e.nik, e.position
    FROM payroll_settlements s
    JOIN employees e ON s.employee_id = e.id
    ORDER BY s.id DESC LIMIT 50`
@@ -253,6 +282,11 @@ const settlements = await queryAll<{
                           </span>
                           <div>
                             <span class="font-extrabold text-slate-900 text-sm">{grp.employee.name}</span>
+                            {cashbonMap.has(grp.employee.id) && (
+                              <span class="text-[11px] px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 font-bold border border-rose-200 ml-2">
+                                Cashbon Aktif: {formatRupiah(cashbonMap.get(grp.employee.id)!)}
+                              </span>
+                            )}
                             <span class="text-xs text-slate-500 ml-2">
                               <span class="capitalize font-semibold text-slate-700">{grp.employee.scheme.replace('_', ' ')}</span> • <span class="group-count font-bold text-indigo-700">{hariIniItems.length} Tagihan</span>
                             </span>
@@ -396,7 +430,7 @@ const settlements = await queryAll<{
                     </td>
                     <td class="py-3.5 px-4 text-right whitespace-nowrap">
                       <button
-                        onclick={`settlePayroll(${item.employee.id}, '${item.employee.name}', '${item.employee.scheme}', ${item.accrued_amount}, ${item.employee.base_rate}, ${item.employee.scheme === 'per_jam' ? item.total_hours_worked : item.total_present_days}, '${item.period_start || ''}', '${item.period_end || ''}')`}
+                        onclick={`openSettleModal(${item.employee.id}, '${item.employee.name.replace(/'/g, "\\'")}', '${item.employee.nik}', '${(item.employee.position || '').replace(/'/g, "\\'")}', '${item.employee.scheme}', ${item.accrued_amount}, ${item.employee.base_rate}, ${item.employee.scheme === 'per_jam' ? item.total_hours_worked : item.total_present_days}, '${item.period_start || ''}', '${item.period_end || ''}', ${item.employee.fixed_allowance || 0}, ${cashbonMap.get(item.employee.id) || 0})`}
                         class={`px-3.5 py-1.5 rounded-xl font-bold text-xs transition shadow-sm ${
                           item.statusCategory === 'hari_ini_bayar'
                             ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
@@ -439,41 +473,334 @@ const settlements = await queryAll<{
               <th class="py-3 px-4">No. Bukti</th>
               <th class="py-3 px-4">Nama Karyawan</th>
               <th class="py-3 px-4">Periode Kerja</th>
-              <th class="py-3 px-4">Total Kerja</th>
-              <th class="py-3 px-4">Gaji Dibayarkan</th>
+              <th class="py-3 px-4">Gaji Pokok</th>
+              <th class="py-3 px-4">Tunjangan / Bonus</th>
+              <th class="py-3 px-4">Potongan Cashbon</th>
+              <th class="py-3 px-4">Gaji Bersih</th>
               <th class="py-3 px-4">Tanggal Pembayaran</th>
+              <th class="py-3 px-4 text-right">Aksi</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100">
             {settlements.length > 0 ? (
-              settlements.map((s) => (
-                <tr class="hover:bg-slate-50/80 transition-colors">
-                  <td class="py-3 px-4 font-mono font-bold text-slate-700">#PAY-{s.id}</td>
-                  <td class="py-3 px-4">
-                    <div class="font-bold text-slate-900">{s.name}</div>
-                    <div class="text-[10px] text-slate-400">NIK: {s.nik}</div>
-                  </td>
-                  <td class="py-3 px-4 font-medium text-slate-700 whitespace-nowrap">
-                    {s.period_start === s.period_end
-                      ? formatIndonesianDate(s.period_start, true)
-                      : `${formatIndonesianDate(s.period_start, false)} s/d ${formatIndonesianDate(s.period_end, false)}`}
-                  </td>
-                  <td class="py-3 px-4 capitalize font-semibold text-slate-800">
-                    {s.total_units} {s.scheme === 'per_jam' ? 'Jam' : s.scheme === 'harian' ? 'Hari' : s.scheme === 'mingguan' ? 'Minggu' : 'Bulan'}
-                  </td>
-                  <td class="py-3 px-4 font-bold text-slate-900 text-sm">{formatRupiah(s.amount_paid)}</td>
-                  <td class="py-3 px-4 text-slate-500 whitespace-nowrap">{formatIndonesianDate(s.settled_at)}</td>
-                </tr>
-              ))
+              settlements.map((s) => {
+                const totalAdditional = (Number(s.allowance) || 0) + (Number(s.overtime_pay) || 0) + (Number(s.bonus) || 0);
+                const baseWage = Number(s.rate) * Number(s.total_units) || Number(s.amount_paid);
+                return (
+                  <tr class="hover:bg-slate-50/80 transition-colors">
+                    <td class="py-3 px-4 font-mono font-bold text-slate-700">#PAY-{s.id}</td>
+                    <td class="py-3 px-4">
+                      <div class="font-bold text-slate-900">{s.name}</div>
+                      <div class="text-[10px] text-slate-400">NIK: {s.nik} {s.position ? `• ${s.position}` : ''}</div>
+                    </td>
+                    <td class="py-3 px-4 font-medium text-slate-700 whitespace-nowrap">
+                      {s.period_start === s.period_end
+                        ? formatIndonesianDate(s.period_start, true)
+                        : `${formatIndonesianDate(s.period_start, false)} s/d ${formatIndonesianDate(s.period_end, false)}`}
+                    </td>
+                    <td class="py-3 px-4 font-medium text-slate-800 whitespace-nowrap">
+                      {formatRupiah(baseWage)}
+                      <span class="text-[10px] text-slate-400 block">
+                        {s.total_units} {s.scheme === 'per_jam' ? 'Jam' : s.scheme === 'harian' ? 'Hari' : s.scheme === 'mingguan' ? 'Minggu' : 'Bulan'}
+                      </span>
+                    </td>
+                    <td class="py-3 px-4 whitespace-nowrap">
+                      {totalAdditional > 0 ? (
+                        <span class="font-bold text-emerald-600">+{formatRupiah(totalAdditional)}</span>
+                      ) : (
+                        <span class="text-slate-400">-</span>
+                      )}
+                    </td>
+                    <td class="py-3 px-4 whitespace-nowrap">
+                      {Number(s.cashbon_deduction) > 0 ? (
+                        <span class="font-bold text-rose-600">-{formatRupiah(Number(s.cashbon_deduction))}</span>
+                      ) : (
+                        <span class="text-slate-400">Rp 0</span>
+                      )}
+                    </td>
+                    <td class="py-3 px-4 font-extrabold text-slate-900 text-sm whitespace-nowrap">
+                      {formatRupiah(s.amount_paid)}
+                    </td>
+                    <td class="py-3 px-4 text-slate-500 whitespace-nowrap">{formatIndonesianDate(s.settled_at)}</td>
+                    <td class="py-3 px-4 text-right whitespace-nowrap">
+                      <button
+                        type="button"
+                        onclick={`printSettlementSlip(${JSON.stringify({
+                          id: s.id,
+                          name: s.name,
+                          nik: s.nik,
+                          position: s.position || '-',
+                          period: s.period_start === s.period_end ? s.period_start : `${s.period_start} s/d ${s.period_end}`,
+                          scheme: s.scheme.replace('_', ' '),
+                          units: `${s.total_units} ${s.scheme === 'per_jam' ? 'Jam' : s.scheme === 'harian' ? 'Hari' : s.scheme === 'mingguan' ? 'Minggu' : 'Bulan'}`,
+                          rate: formatRupiah(s.rate),
+                          baseWage: formatRupiah(baseWage),
+                          allowance: formatRupiah(Number(s.allowance) || 0),
+                          overtime: formatRupiah(Number(s.overtime_pay) || 0),
+                          bonus: formatRupiah(Number(s.bonus) || 0),
+                          cashbon: formatRupiah(Number(s.cashbon_deduction) || 0),
+                          totalNet: formatRupiah(s.amount_paid),
+                          date: formatIndonesianDate(s.settled_at),
+                          notes: s.notes || '-'
+                        })})`}
+                        class="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 transition"
+                      >
+                        Cetak Slip
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })
             ) : (
               <tr>
-                <td colspan="6" class="py-6 text-center text-slate-400">
+                <td colspan="9" class="py-6 text-center text-slate-400">
                   Belum ada riwayat pembayaran gaji.
                 </td>
               </tr>
             )}
           </tbody>
         </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Proses Pembayaran Gaji (Komponen Lengkap) -->
+  <div id="settleModal" class="hidden fixed inset-0 z-50 overflow-y-auto bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-lg w-full p-6 shadow-xl border border-slate-100 max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+        <div>
+          <h3 class="text-base font-bold text-slate-900">Pembayaran Gaji Karyawan</h3>
+          <p class="text-xs text-slate-500">Rincian pendapatan, tunjangan, bonus, dan potongan cashbon</p>
+        </div>
+        <button type="button" onclick="closeSettleModal()" class="text-slate-400 hover:text-slate-600 text-xl font-bold">&times;</button>
+      </div>
+
+      <form id="settleForm" onsubmit="submitSettleForm(event)" class="mt-4 space-y-4">
+        <input type="hidden" id="modalEmpId" />
+        <input type="hidden" id="modalScheme" />
+        <input type="hidden" id="modalTotalUnits" />
+        <input type="hidden" id="modalRate" />
+        <input type="hidden" id="modalPeriodStart" />
+        <input type="hidden" id="modalPeriodEnd" />
+
+        <div class="bg-slate-50 p-3 rounded-2xl border border-slate-200/80 flex items-center justify-between">
+          <div>
+            <div id="modalEmpName" class="font-bold text-sm text-slate-900">Nama Karyawan</div>
+            <div id="modalEmpSub" class="text-xs text-slate-500">NIK • Skema</div>
+          </div>
+          <div class="text-right">
+            <span class="text-[10px] text-slate-400 block">Periode</span>
+            <span id="modalPeriodText" class="text-xs font-semibold text-slate-700">01/01/2026 s/d 31/01/2026</span>
+          </div>
+        </div>
+
+        <!-- Komponen Pendapatan -->
+        <div>
+          <span class="text-xs font-bold text-slate-700 uppercase tracking-wider block mb-2">1. Komponen Pendapatan (+)</span>
+          <div class="space-y-2">
+            <div class="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 border border-slate-100">
+              <div>
+                <span class="text-xs font-semibold text-slate-800 block">Gaji Pokok Terhitung</span>
+                <span id="modalBaseWageDetail" class="text-[10px] text-slate-400">Unit x Tarif</span>
+              </div>
+              <span id="modalBaseWageDisplay" class="text-xs font-bold text-slate-900">Rp 0</span>
+            </div>
+
+            <div class="grid grid-cols-3 gap-2">
+              <div>
+                <label class="block text-[11px] font-semibold text-slate-600 mb-1">Tunjangan (Rp)</label>
+                <input
+                  type="number"
+                  id="modalAllowance"
+                  min="0"
+                  step="5000"
+                  value="0"
+                  oninput="calcModalTotal()"
+                  class="w-full px-2.5 py-1.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label class="block text-[11px] font-semibold text-slate-600 mb-1">Upah Lembur (Rp)</label>
+                <input
+                  type="number"
+                  id="modalOvertime"
+                  min="0"
+                  step="5000"
+                  value="0"
+                  oninput="calcModalTotal()"
+                  class="w-full px-2.5 py-1.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label class="block text-[11px] font-semibold text-slate-600 mb-1">Bonus (Rp)</label>
+                <input
+                  type="number"
+                  id="modalBonus"
+                  min="0"
+                  step="5000"
+                  value="0"
+                  oninput="calcModalTotal()"
+                  class="w-full px-2.5 py-1.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Komponen Potongan -->
+        <div>
+          <span class="text-xs font-bold text-slate-700 uppercase tracking-wider block mb-2">2. Komponen Potongan (-)</span>
+          <div class="p-3 rounded-2xl bg-rose-50/50 border border-rose-100 space-y-2">
+            <div class="flex items-center justify-between text-xs">
+              <span class="text-rose-900 font-medium">Sisa Pinjaman Cashbon Aktif:</span>
+              <span id="modalActiveCashbonBadge" class="font-extrabold text-rose-700">Rp 0</span>
+            </div>
+
+            <div>
+              <label class="block text-[11px] font-semibold text-rose-900 mb-1">Potong Cashbon Siklus Ini (Rp)</label>
+              <input
+                type="number"
+                id="modalCashbonDeduction"
+                min="0"
+                step="5000"
+                value="0"
+                oninput="calcModalTotal()"
+                class="w-full px-3 py-1.5 rounded-xl border border-rose-200 text-xs font-bold text-rose-900 bg-white focus:ring-2 focus:ring-rose-500 focus:outline-none"
+              />
+              <span class="text-[10px] text-rose-600 mt-1 block">
+                Otomatis memotong tagihan cashbon dan tercatat di slip gaji.
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Total Take Home Pay -->
+        <div class="p-4 rounded-2xl bg-indigo-900 text-white flex items-center justify-between">
+          <div>
+            <span class="text-xs text-indigo-200 block">Total Gaji Bersih (Take Home Pay)</span>
+            <span class="text-[10px] text-indigo-300">Pendapatan Kotor - Potongan Cashbon</span>
+          </div>
+          <div id="modalNetWageDisplay" class="text-xl font-black text-white">Rp 0</div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Catatan Tambahan (Opsional)</label>
+          <input
+            type="text"
+            id="modalNotes"
+            placeholder="Keterangan gaji, transfer, atau bonus..."
+            class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs text-slate-700 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+          />
+        </div>
+
+        <div class="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onclick="closeSettleModal()"
+            class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 transition"
+          >
+            Batal
+          </button>
+          <button
+            type="submit"
+            id="modalSubmitBtn"
+            class="px-5 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition shadow-sm flex items-center gap-1.5"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+            Bayar & Terbitkan Slip
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal Slip Gaji Cetak -->
+  <div id="slipModal" class="hidden fixed inset-0 z-50 overflow-y-auto bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-lg w-full p-6 shadow-xl border border-slate-100">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+        <h3 class="text-base font-bold text-slate-900">Bukti Slip Gaji Karyawan</h3>
+        <button type="button" onclick="closeSlipModal()" class="text-slate-400 hover:text-slate-600 text-xl font-bold">&times;</button>
+      </div>
+
+      <div id="slipPrintArea" class="py-4 space-y-3 text-xs">
+        <div class="border-b-2 border-slate-900 pb-3 flex justify-between items-start">
+          <div>
+            <div class="font-extrabold text-base tracking-tight text-slate-900">FERMI PAYROLLKU</div>
+            <div class="text-[11px] text-slate-500">Bukti Resmi Penggajian & Potongan</div>
+          </div>
+          <div class="text-right">
+            <span id="slipModalNo" class="font-mono font-bold text-slate-800 text-xs">#PAY-0000</span>
+            <div id="slipModalDate" class="text-[10px] text-slate-400">Tanggal</div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2 py-1">
+          <div>
+            <span class="text-slate-400 block text-[10px]">Nama Karyawan</span>
+            <strong id="slipModalName" class="text-slate-900 text-sm">Nama</strong>
+            <div id="slipModalNikPos" class="text-[11px] text-slate-500">NIK • Posisi</div>
+          </div>
+          <div class="text-right">
+            <span class="text-slate-400 block text-[10px]">Periode Kerja</span>
+            <strong id="slipModalPeriod" class="text-slate-800">Periode</strong>
+            <div id="slipModalScheme" class="text-[11px] text-slate-500 capitalize">Skema</div>
+          </div>
+        </div>
+
+        <div class="pt-2 border-t border-slate-100 space-y-1.5">
+          <div class="font-bold text-slate-700 text-[11px] uppercase tracking-wider">Rincian Pendapatan</div>
+          <div class="flex justify-between text-slate-600">
+            <span id="slipModalBaseDesc">Gaji Pokok:</span>
+            <span id="slipModalBaseAmount" class="font-semibold text-slate-800">Rp 0</span>
+          </div>
+          <div class="flex justify-between text-slate-600">
+            <span>Tunjangan:</span>
+            <span id="slipModalAllowance" class="font-semibold text-slate-800">Rp 0</span>
+          </div>
+          <div class="flex justify-between text-slate-600">
+            <span>Upah Lembur:</span>
+            <span id="slipModalOvertime" class="font-semibold text-slate-800">Rp 0</span>
+          </div>
+          <div class="flex justify-between text-slate-600">
+            <span>Bonus Tambahan:</span>
+            <span id="slipModalBonus" class="font-semibold text-slate-800">Rp 0</span>
+          </div>
+        </div>
+
+        <div class="pt-2 border-t border-slate-100 space-y-1.5">
+          <div class="font-bold text-rose-700 text-[11px] uppercase tracking-wider">Rincian Potongan</div>
+          <div class="flex justify-between text-rose-700">
+            <span>Potongan Cashbon:</span>
+            <span id="slipModalCashbon" class="font-bold">-Rp 0</span>
+          </div>
+        </div>
+
+        <div class="p-3.5 rounded-2xl bg-slate-900 text-white flex justify-between items-center mt-3">
+          <span class="font-bold text-xs">Total Gaji Bersih:</span>
+          <span id="slipModalNet" class="font-black text-base text-emerald-400">Rp 0</span>
+        </div>
+
+        <div class="text-[10px] text-slate-400 text-center pt-2">
+          Slip gaji ini diterbitkan secara otomatis dan sah melalui sistem Fermi Payrollku.
+        </div>
+      </div>
+
+      <div class="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+        <button
+          type="button"
+          onclick="closeSlipModal()"
+          class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 transition"
+        >
+          Tutup
+        </button>
+        <button
+          type="button"
+          onclick="printCurrentSlip()"
+          class="px-5 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white transition shadow-sm flex items-center gap-1.5"
+        >
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
+          Cetak / Download PDF
+        </button>
       </div>
     </div>
   </div>
@@ -783,17 +1110,81 @@ const settlements = await queryAll<{
       }
     };
 
-    window.settlePayroll = async function (empId, empName, scheme, amount, rate, units, periodStart, periodEnd) {
-      if (amount <= 0) {
-        alert('Nominal gaji masih Rp 0.');
-        return;
+    let modalCalculatedBase = 0;
+    let modalCurrentActiveCashbon = 0;
+
+    window.openSettleModal = function (empId, empName, empNik, position, scheme, baseAmount, rate, units, periodStart, periodEnd, fixedAllowance, activeCashbon) {
+      document.getElementById('modalEmpId').value = empId;
+      document.getElementById('modalScheme').value = scheme;
+      document.getElementById('modalTotalUnits').value = units;
+      document.getElementById('modalRate').value = rate;
+      document.getElementById('modalPeriodStart').value = periodStart;
+      document.getElementById('modalPeriodEnd').value = periodEnd;
+
+      document.getElementById('modalEmpName').textContent = empName;
+      document.getElementById('modalEmpSub').textContent = `NIK: ${empNik}${position ? ' • ' + position : ''} • Skema: ${scheme.replace('_', ' ')}`;
+      
+      const periodLabel = periodStart === periodEnd ? periodStart : `${periodStart} s/d ${periodEnd}`;
+      document.getElementById('modalPeriodText').textContent = periodLabel;
+
+      modalCalculatedBase = Number(baseAmount) || 0;
+      modalCurrentActiveCashbon = Number(activeCashbon) || 0;
+
+      const unitText = scheme === 'per_jam' ? 'Jam' : scheme === 'harian' ? 'Hari' : scheme === 'mingguan' ? 'Minggu' : 'Bulan';
+      document.getElementById('modalBaseWageDetail').textContent = `${units} ${unitText} × ${formatRupiahJs(rate)}`;
+      document.getElementById('modalBaseWageDisplay').textContent = formatRupiahJs(modalCalculatedBase);
+
+      document.getElementById('modalAllowance').value = fixedAllowance || 0;
+      document.getElementById('modalOvertime').value = 0;
+      document.getElementById('modalBonus').value = 0;
+
+      document.getElementById('modalActiveCashbonBadge').textContent = formatRupiahJs(modalCurrentActiveCashbon);
+      // Auto pre-fill cashbon deduction if employee has cashbon balance
+      const suggestedDeduction = Math.min(modalCalculatedBase + (Number(fixedAllowance) || 0), modalCurrentActiveCashbon);
+      document.getElementById('modalCashbonDeduction').value = suggestedDeduction;
+
+      document.getElementById('modalNotes').value = `Gaji ${scheme.replace('_', ' ')} (${periodLabel})`;
+
+      calcModalTotal();
+      document.getElementById('settleModal').classList.remove('hidden');
+    };
+
+    window.closeSettleModal = function () {
+      document.getElementById('settleModal').classList.add('hidden');
+    };
+
+    window.calcModalTotal = function () {
+      const allowance = Number(document.getElementById('modalAllowance').value) || 0;
+      const overtime = Number(document.getElementById('modalOvertime').value) || 0;
+      const bonus = Number(document.getElementById('modalBonus').value) || 0;
+      let cashbonDed = Number(document.getElementById('modalCashbonDeduction').value) || 0;
+
+      if (cashbonDed > modalCurrentActiveCashbon) {
+        cashbonDed = modalCurrentActiveCashbon;
+        document.getElementById('modalCashbonDeduction').value = cashbonDed;
       }
 
-      const formatted = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(amount);
-      const periodText = periodStart === periodEnd ? periodStart : `${periodStart} s/d ${periodEnd}`;
-      if (!confirm(`Konfirmasi pembayaran gaji untuk ${empName}?\nPeriode: ${periodText}\nNominal: ${formatted}`)) {
-        return;
-      }
+      const totalGross = modalCalculatedBase + allowance + overtime + bonus;
+      const totalNet = Math.max(0, totalGross - cashbonDed);
+
+      document.getElementById('modalNetWageDisplay').textContent = formatRupiahJs(totalNet);
+      return { totalGross, totalNet, allowance, overtime, bonus, cashbonDed };
+    };
+
+    window.submitSettleForm = async function (e) {
+      e.preventDefault();
+      const { totalNet, allowance, overtime, bonus, cashbonDed } = calcModalTotal();
+      const empId = Number(document.getElementById('modalEmpId').value);
+      const scheme = document.getElementById('modalScheme').value;
+      const units = Number(document.getElementById('modalTotalUnits').value) || 1;
+      const rate = Number(document.getElementById('modalRate').value) || 0;
+      const pStart = document.getElementById('modalPeriodStart').value;
+      const pEnd = document.getElementById('modalPeriodEnd').value;
+      const notes = document.getElementById('modalNotes').value;
+      const btn = document.getElementById('modalSubmitBtn');
+
+      btn.disabled = true;
+      btn.textContent = 'Memproses...';
 
       try {
         const res = await fetch('/api/payroll/settle', {
@@ -801,25 +1192,125 @@ const settlements = await queryAll<{
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             employee_id: empId,
-            scheme: scheme,
+            scheme,
             total_units: units,
-            rate: rate,
-            amount_paid: amount,
-            period_start: periodStart,
-            period_end: periodEnd,
-            notes: `Pembayaran gaji untuk ${empName} (${periodText})`,
+            rate,
+            amount_paid: totalNet,
+            allowance,
+            overtime_pay: overtime,
+            bonus,
+            cashbon_deduction: cashbonDed,
+            period_start: pStart,
+            period_end: pEnd,
+            notes,
           }),
         });
         const data = await res.json();
-        if (res.ok && data.success) {
-          if (window.showToast) window.showToast(`Gaji ${empName} berhasil dibayarkan!`);
-          setTimeout(() => window.location.reload(), 1000);
-        } else {
-          alert(data.error || 'Gagal memproses pembayaran');
-        }
-      } catch (e) {
-        alert('Gagal menghubungi server');
+        if (!res.ok) throw new Error(data.error || 'Gagal memproses pembayaran');
+
+        window.showToast?.('Pembayaran berhasil dibukukan!');
+        closeSettleModal();
+        setTimeout(() => location.reload(), 800);
+      } catch (err) {
+        alert(err.message);
+        btn.disabled = false;
+        btn.textContent = 'Bayar & Terbitkan Slip';
       }
+    };
+
+    let activePrintSlip = null;
+    window.printSettlementSlip = function (slipData) {
+      activePrintSlip = slipData;
+      document.getElementById('slipModalNo').textContent = `#PAY-${slipData.id}`;
+      document.getElementById('slipModalDate').textContent = slipData.date;
+      document.getElementById('slipModalName').textContent = slipData.name;
+      document.getElementById('slipModalNikPos').textContent = `NIK: ${slipData.nik} • ${slipData.position}`;
+      document.getElementById('slipModalPeriod').textContent = slipData.period;
+      document.getElementById('slipModalScheme').textContent = `Gaji ${slipData.scheme}`;
+
+      document.getElementById('slipModalBaseDesc').textContent = `Gaji Pokok (${slipData.units}):`;
+      document.getElementById('slipModalBaseAmount').textContent = slipData.baseWage;
+      document.getElementById('slipModalAllowance').textContent = slipData.allowance;
+      document.getElementById('slipModalOvertime').textContent = slipData.overtime;
+      document.getElementById('slipModalBonus').textContent = slipData.bonus;
+      document.getElementById('slipModalCashbon').textContent = `-${slipData.cashbon}`;
+      document.getElementById('slipModalNet').textContent = slipData.totalNet;
+
+      document.getElementById('slipModal').classList.remove('hidden');
+    };
+
+    window.closeSlipModal = function () {
+      document.getElementById('slipModal').classList.add('hidden');
+    };
+
+    window.printCurrentSlip = function () {
+      if (!activePrintSlip) return;
+      const d = activePrintSlip;
+      const w = window.open('', '', 'width=700,height=750');
+      w.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Slip Gaji - ${d.name} (#PAY-${d.id})</title>
+          <style>
+            body { font-family: 'Helvetica Neue', Arial, sans-serif; padding: 40px; color: #0f172a; margin: 0; }
+            .header { border-bottom: 2px solid #0f172a; padding-bottom: 12px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: flex-start; }
+            .brand { font-size: 20px; font-weight: 800; letter-spacing: -0.5px; }
+            .sub { font-size: 11px; color: #64748b; margin-top: 2px; }
+            .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 25px; font-size: 13px; }
+            .section-title { font-size: 11px; font-weight: bold; text-transform: uppercase; color: #475569; letter-spacing: 0.5px; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; margin-bottom: 8px; margin-top: 15px; }
+            .row { display: flex; justify-content: space-between; padding: 5px 0; font-size: 13px; }
+            .total-box { margin-top: 20px; border-top: 2px solid #0f172a; padding-top: 12px; display: flex; justify-content: space-between; font-size: 16px; font-weight: bold; }
+            .footer { margin-top: 40px; font-size: 11px; color: #64748b; text-align: center; border-top: 1px dashed #cbd5e1; padding-top: 15px; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div>
+              <div class="brand">FERMI PAYROLLKU</div>
+              <div class="sub">Bukti Resmi Penggajian & Potongan</div>
+            </div>
+            <div style="text-align: right;">
+              <div style="font-family: monospace; font-weight: bold;">#PAY-${d.id}</div>
+              <div class="sub">${d.date}</div>
+            </div>
+          </div>
+          <div class="info-grid">
+            <div>
+              <div style="color: #64748b; font-size: 11px;">Karyawan:</div>
+              <strong style="font-size: 15px;">${d.name}</strong>
+              <div style="color: #64748b;">NIK: ${d.nik} • Posisi: ${d.position}</div>
+            </div>
+            <div style="text-align: right;">
+              <div style="color: #64748b; font-size: 11px;">Periode Pembayaran:</div>
+              <strong style="font-size: 14px;">${d.period}</strong>
+              <div style="color: #64748b; text-transform: capitalize;">Skema Gaji: ${d.scheme}</div>
+            </div>
+          </div>
+
+          <div class="section-title">Pendapatan</div>
+          <div class="row"><span>Gaji Pokok (${d.units} × ${d.rate}):</span><span>${d.baseWage}</span></div>
+          <div class="row"><span>Tunjangan:</span><span>${d.allowance}</span></div>
+          <div class="row"><span>Upah Lembur:</span><span>${d.overtime}</span></div>
+          <div class="row"><span>Bonus:</span><span>${d.bonus}</span></div>
+
+          <div class="section-title" style="color: #b91c1c;">Potongan</div>
+          <div class="row" style="color: #b91c1c;"><span>Potongan Cashbon:</span><span>-${d.cashbon}</span></div>
+
+          <div class="total-box">
+            <span>Total Gaji Bersih (Take Home Pay):</span>
+            <span style="color: #047857;">${d.totalNet}</span>
+          </div>
+
+          <div class="footer">
+            Dokumen ini dihasilkan secara otomatis oleh sistem Fermi Payrollku dan sah tanpa tanda tangan fisik.
+          </div>
+        </body>
+        </html>
+      `);
+      w.document.close();
+      w.focus();
+      w.print();
     };
 
     applyFilters();

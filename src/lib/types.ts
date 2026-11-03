@@ -14,11 +14,16 @@ export interface Employee {
   id: number;
   nik: string;
   name: string;
+  position?: string | null;
   phone: string;
   join_date: string; // YYYY-MM-DD
   scheme: WageScheme;
   base_rate: number; // rate per hour, per day, per week, or per month in IDR
   payday_rule: string; // e.g. "25" (25th of month), "1", "10", "jumat" (every Friday)
+  bank_name?: string | null;
+  bank_account_number?: string | null;
+  bank_account_holder?: string | null;
+  fixed_allowance?: number;
   is_active: number; // 1 or 0
   created_at?: string;
 }
@@ -53,6 +58,7 @@ export interface RealtimePayrollItem {
   unpaid_note?: string;
   period_start?: string;
   period_end?: string;
+  active_cashbon?: number;
 }
 
 export interface PayrollSettlement {
@@ -65,8 +71,42 @@ export interface PayrollSettlement {
   scheme: WageScheme;
   total_units: number;
   rate: number;
+  allowance?: number;
+  overtime_pay?: number;
+  bonus?: number;
+  cashbon_deduction?: number;
   amount_paid: number;
   settled_at: string;
   notes?: string;
+}
+
+export type CashbonStatus = 'pending' | 'approved' | 'partial' | 'rejected' | 'settled';
+
+export interface CashbonRequest {
+  id: number;
+  employee_id: number;
+  employee_name?: string;
+  employee_nik?: string;
+  position?: string | null;
+  amount_requested: number;
+  amount_approved: number;
+  reason: string;
+  status: CashbonStatus;
+  disbursed_at?: string | null;
+  admin_notes?: string | null;
+  approved_by?: number | null;
+  approved_by_name?: string | null;
+  created_at: string;
+  total_repaid?: number;
+  remaining_balance?: number;
+}
+
+export interface CashbonRepayment {
+  id: number;
+  cashbon_id: number;
+  settlement_id?: number | null;
+  amount: number;
+  repaid_at: string;
+  notes?: string | null;
 }
 

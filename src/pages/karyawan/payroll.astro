@@ -192,6 +192,11 @@ function getRateUnitLabel(scheme: string) {
                         scheme: s.scheme.replace('_', ' '),
                         units: getUnitLabel(s.scheme, s.total_units),
                         rateFormatted: `${formatRupiah(s.rate)} ${getRateUnitLabel(s.scheme)}`,
+                        baseWage: formatRupiah(Number(s.rate) * Number(s.total_units)),
+                        allowance: formatRupiah(Number(s.allowance) || 0),
+                        overtime: formatRupiah(Number(s.overtime_pay) || 0),
+                        bonus: formatRupiah(Number(s.bonus) || 0),
+                        cashbon: formatRupiah(Number(s.cashbon_deduction) || 0),
                         amountFormatted: formatRupiah(s.amount_paid),
                         settledDate: formatIndonesianDate(s.settled_at)
                       })})`}
@@ -215,7 +220,7 @@ function getRateUnitLabel(scheme: string) {
     </div>
   </div>
 
-  <!-- Modal Slip Gaji Sederhana -->
+  <!-- Modal Slip Gaji Lengkap -->
   <div id="slip-modal" class="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm hidden flex items-center justify-center p-4">
     <div class="bg-white rounded-3xl max-w-md w-full border border-slate-200 shadow-xl overflow-hidden">
       <div class="p-4 bg-slate-900 text-white flex items-center justify-between">
@@ -249,16 +254,20 @@ function getRateUnitLabel(scheme: string) {
             <span id="modal-scheme" class="text-slate-800 capitalize font-medium">Skema</span>
           </div>
           <div class="flex justify-between">
-            <span class="text-slate-500">Tarif:</span>
-            <span id="modal-rate" class="font-medium text-slate-800">Tarif</span>
+            <span class="text-slate-500">Gaji Pokok:</span>
+            <span id="modal-base-wage" class="font-medium text-slate-800">Rp 0</span>
           </div>
           <div class="flex justify-between">
-            <span class="text-slate-500">Total Kerja:</span>
-            <strong id="modal-units" class="text-slate-900">Unit</strong>
+            <span class="text-slate-500">Tunjangan:</span>
+            <span id="modal-allowance" class="font-medium text-slate-800">Rp 0</span>
           </div>
-          <div class="flex justify-between text-slate-400">
-            <span>Potongan:</span>
-            <span>Rp 0 (Tidak ada)</span>
+          <div class="flex justify-between">
+            <span class="text-slate-500">Lembur & Bonus:</span>
+            <span id="modal-additional" class="font-medium text-slate-800">Rp 0</span>
+          </div>
+          <div class="flex justify-between text-rose-600 font-semibold">
+            <span>Potongan Cashbon:</span>
+            <span id="modal-cashbon">-Rp 0</span>
           </div>
         </div>
 
@@ -303,8 +312,10 @@ function getRateUnitLabel(scheme: string) {
       document.getElementById('modal-emp-name').textContent = data.empName;
       document.getElementById('modal-period').textContent = data.period;
       document.getElementById('modal-scheme').textContent = data.scheme;
-      document.getElementById('modal-rate').textContent = data.rateFormatted;
-      document.getElementById('modal-units').textContent = data.units;
+      document.getElementById('modal-base-wage').textContent = data.baseWage || data.rateFormatted;
+      document.getElementById('modal-allowance').textContent = data.allowance || 'Rp 0';
+      document.getElementById('modal-additional').textContent = `Lembur: ${data.overtime || 'Rp 0'} • Bonus: ${data.bonus || 'Rp 0'}`;
+      document.getElementById('modal-cashbon').textContent = `-${data.cashbon || 'Rp 0'}`;
       document.getElementById('modal-amount').textContent = data.amountFormatted;
 
       document.getElementById('slip-modal').classList.remove('hidden');
@@ -317,7 +328,7 @@ function getRateUnitLabel(scheme: string) {
     document.getElementById('modal-print-btn').addEventListener('click', () => {
       if (!activeSlipData) return;
       const d = activeSlipData;
-      const printWindow = window.open('', '', 'width=600,height=600');
+      const printWindow = window.open('', '', 'width=650,height=700');
       printWindow.document.write(`
         <!DOCTYPE html>
         <html>
@@ -328,26 +339,36 @@ function getRateUnitLabel(scheme: string) {
               .header { border-bottom: 2px solid #0f172a; padding-bottom: 10px; margin-bottom: 20px; }
               .title { font-size: 18px; font-weight: bold; }
               .row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 13px; }
+              .section { margin-top: 15px; font-weight: bold; font-size: 12px; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; }
               .total { margin-top: 15px; border-top: 2px solid #0f172a; padding-top: 10px; font-size: 15px; font-weight: bold; }
               .footer { margin-top: 30px; font-size: 11px; color: #64748b; text-align: center; }
             </style>
           </head>
           <body>
             <div class="header">
-              <div class="title">FERMI PAYROLL - BUKTI SLIP GAJI</div>
+              <div class="title">FERMI PAYROLLKU - BUKTI SLIP GAJI</div>
               <div style="font-size: 12px; color: #64748b;">${d.slipNo}</div>
             </div>
             <div class="row"><span>Nama Karyawan:</span><strong>${d.empName}</strong></div>
+            <div class="row"><span>NIK:</span><span>${d.empNik}</span></div>
             <div class="row"><span>Periode Kerja:</span><span>${d.period}</span></div>
-            <div class="row"><span>Jenis Gaji:</span><span style="text-transform: capitalize;">${d.scheme}</span></div>
-            <div class="row"><span>Tarif:</span><span>${d.rateFormatted}</span></div>
-            <div class="row"><span>Total Kerja:</span><strong>${d.units}</strong></div>
+            <div class="row"><span>Jenis Gaji:</span><span style="text-transform: capitalize;">${d.scheme} (${d.units})</span></div>
+
+            <div class="section">PENDAPATAN</div>
+            <div class="row"><span>Gaji Pokok:</span><span>${d.baseWage || d.rateFormatted}</span></div>
+            <div class="row"><span>Tunjangan:</span><span>${d.allowance || 'Rp 0'}</span></div>
+            <div class="row"><span>Upah Lembur:</span><span>${d.overtime || 'Rp 0'}</span></div>
+            <div class="row"><span>Bonus:</span><span>${d.bonus || 'Rp 0'}</span></div>
+
+            <div class="section" style="color: #b91c1c;">POTONGAN</div>
+            <div class="row" style="color: #b91c1c;"><span>Potongan Cashbon:</span><span>-${d.cashbon || 'Rp 0'}</span></div>
+
             <div class="row total">
               <span>Total Gaji Bersih:</span>
-              <span>${d.amountFormatted}</span>
+              <span style="color: #047857;">${d.amountFormatted}</span>
             </div>
             <div class="footer">
-              Dibayarkan pada ${d.settledDate}. Sah tanpa tanda tangan.
+              Dibayarkan pada ${d.settledDate}. Sah tanpa tanda tangan fisik.
             </div>
           </body>
         </html>

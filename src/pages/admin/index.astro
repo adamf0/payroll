@@ -3,7 +3,7 @@ import Layout from '../../layouts/Layout.astro';
 import { getCurrentUser } from '../../lib/auth';
 import { queryAll, queryOne } from '../../lib/db';
 import { computeAllRealtimePayroll, formatRupiah, formatIndonesianDate, getJakartaTodayStr } from '../../lib/payroll';
-import type { Employee, AttendanceRecord } from '../../lib/types';
+import type { AttendanceRecord } from '../../lib/types';
 
 const currentUser = await getCurrentUser(Astro.cookies);
 if (!currentUser || currentUser.role !== 'admin') {
@@ -30,61 +30,99 @@ const presencePercentage = totalEmployees > 0 ? Math.round((presentTodayCount / 
 const payrollItems = await computeAllRealtimePayroll();
 const totalAccruedPayroll = payrollItems.reduce((acc, item) => acc + item.accrued_amount, 0);
 const duePayrollCount = payrollItems.filter((item) => item.is_due).length;
+
+// 4. Cashbon Stats (Matching Client Mockup ide1/ide2)
+const pendingCashbonCount = (await queryOne<{ count: number }>("SELECT COUNT(*) as count FROM cashbon_requests WHERE status = 'pending'"))?.count || 0;
+const totalCashbonDisbursedActive = (await queryOne<{ total: number }>(`
+  SELECT COALESCE(SUM(c.amount_approved - COALESCE(r.total_repaid, 0)), 0) as total
+  FROM cashbon_requests c
+  LEFT JOIN (
+    SELECT cashbon_id, SUM(amount) AS total_repaid
+    FROM cashbon_repayments
+    GROUP BY cashbon_id
+  ) r ON c.id = r.cashbon_id
+  WHERE c.status IN ('approved', 'partial') AND c.disbursed_at IS NOT NULL
+`))?.total || 0;
 ---
 
-<Layout title="Ringkasan Kantor" activeNav="admin-dashboard">
+<Layout title="Ringkasan Kantor & Finansial" activeNav="admin-dashboard">
   <div class="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
-    <!-- Top Welcome Bar -->
+    <!-- Top Welcome & Quick Actions Bar -->
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
       <div>
         <h1 class="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
-          Ringkasan Kantor
+          Ringkasan Kantor & Finansial
         </h1>
         <p class="text-xs sm:text-sm text-slate-500 mt-1">
-          Informasi kehadiran karyawan dan perkiraan gaji yang terkumpul.
+          Pantau kehadiran harian, estimasi gaji berjalan, dan perputaran cashbon karyawan.
         </p>
       </div>
 
-      <div class="flex items-center gap-2">
+      <!-- Quick Action Buttons -->
+      <div class="flex flex-wrap items-center gap-2">
+        <a
+          href="/admin/karyawan"
+          class="px-3 py-2 rounded-xl bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs border border-slate-200 shadow-sm transition flex items-center gap-1.5"
+        >
+          <svg class="w-3.5 h-3.5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"/></svg>
+          + Karyawan
+        </a>
+        <a
+          href="/admin/cashbon"
+          class="px-3 py-2 rounded-xl bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs border border-slate-200 shadow-sm transition flex items-center gap-1.5"
+        >
+          <svg class="w-3.5 h-3.5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          + Cashbon
+        </a>
         <a
           href="/admin/payroll"
-          class="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs transition shadow-sm"
+          class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs transition shadow-sm flex items-center gap-1.5"
         >
-          Kelola Gaji Karyawan &rarr;
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          Kelola Gaji
         </a>
       </div>
     </div>
 
-    <!-- 4 Simple Info Cards -->
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+    <!-- Summary Metrics Grid -->
+    <div class="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4 mb-8">
       <!-- Total Karyawan -->
-      <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm">
-        <span class="text-xs text-slate-400 font-medium block">Total Karyawan</span>
-        <div class="text-2xl font-extrabold text-slate-900 mt-1">{totalEmployees} Orang</div>
+      <div class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm">
+        <span class="text-xs text-slate-500 font-medium block">Total Karyawan</span>
+        <div class="text-xl font-extrabold text-slate-900 mt-1">{totalEmployees} Orang</div>
         <span class="text-[11px] text-slate-400 mt-1 block">Semua aktif bekerja</span>
       </div>
 
       <!-- Hadir Hari Ini -->
-      <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm">
-        <span class="text-xs text-slate-400 font-medium block">Hadir Hari Ini</span>
-        <div class="text-2xl font-extrabold text-slate-900 mt-1">{presentTodayCount} Orang</div>
+      <div class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm">
+        <span class="text-xs text-slate-500 font-medium block">Hadir Hari Ini</span>
+        <div class="text-xl font-extrabold text-slate-900 mt-1">{presentTodayCount} Orang</div>
         <span class="text-[11px] text-emerald-600 font-medium mt-1 block">
           {presencePercentage}% hadir ({formatIndonesianDate(todayStr)})
         </span>
       </div>
 
       <!-- Total Gaji Berjalan -->
-      <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm">
-        <span class="text-xs text-slate-400 font-medium block">Gaji Berjalan Bulan Ini</span>
-        <div class="text-2xl font-extrabold text-indigo-600 mt-1">{formatRupiah(totalAccruedPayroll)}</div>
-        <span class="text-[11px] text-slate-400 mt-1 block">Akumulasi sampai hari ini</span>
+      <div class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm">
+        <span class="text-xs text-slate-500 font-medium block">Gaji Berjalan Bulan Ini</span>
+        <div class="text-xl font-extrabold text-indigo-600 mt-1">{formatRupiah(totalAccruedPayroll)}</div>
+        <span class="text-[11px] text-slate-400 mt-1 block">Akumulasi berjalan</span>
       </div>
 
-      <!-- Siap Bayar -->
-      <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm">
-        <span class="text-xs text-slate-400 font-medium block">Gaji Siap Bayar</span>
-        <div class="text-2xl font-extrabold text-slate-900 mt-1">{duePayrollCount} Karyawan</div>
-        <span class="text-[11px] text-slate-400 mt-1 block">Jatuh tempo gajian hari ini</span>
+      <!-- Cashbon Pending -->
+      <div class="bg-amber-50/60 p-4 rounded-2xl border border-amber-200/80 shadow-sm">
+        <span class="text-xs text-amber-800 font-semibold block">Cashbon Menunggu</span>
+        <div class="text-xl font-extrabold text-amber-900 mt-1">{pendingCashbonCount} Pengajuan</div>
+        <a href="/admin/cashbon" class="text-[11px] text-amber-700 font-medium mt-1 hover:underline block">
+          Perlu persetujuan admin &rarr;
+        </a>
+      </div>
+
+      <!-- Sisa Cashbon Aktif -->
+      <div class="bg-blue-50/60 p-4 rounded-2xl border border-blue-200/80 shadow-sm col-span-2 lg:col-span-1">
+        <span class="text-xs text-blue-800 font-semibold block">Sisa Saldo Cashbon</span>
+        <div class="text-xl font-extrabold text-blue-900 mt-1">{formatRupiah(totalCashbonDisbursedActive)}</div>
+        <span class="text-[11px] text-blue-700 mt-1 block">Akan dipotong saat gajian</span>
       </div>
     </div>
 
@@ -149,17 +187,15 @@ const duePayrollCount = payrollItems.filter((item) => item.is_due).length;
                 </div>
 
                 <div class="text-right">
-                  <span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800">
-                    Masuk {att.check_in}
+                  <span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                    Masuk: {att.check_in.slice(0, 5)}
                   </span>
-                  <div class="text-[10px] text-slate-400 mt-0.5">
-                    {att.check_out ? `Pulang ${att.check_out}` : 'Sedang Kerja'}
-                  </div>
+                  <div class="text-[10px] text-slate-400 mt-0.5 capitalize">{att.scheme.replace('_', ' ')}</div>
                 </div>
               </div>
             ))
           ) : (
-            <div class="py-8 text-center text-slate-400 text-xs">
+            <div class="text-center py-8 text-xs text-slate-400">
               Belum ada karyawan yang absen hari ini.
             </div>
           )}

@@ -3,7 +3,7 @@ import { getCurrentUser } from '../lib/auth';
 
 interface Props {
   title: string;
-  activeNav?: 'home' | 'admin-dashboard' | 'admin-karyawan' | 'admin-presensi' | 'admin-payroll' | 'karyawan-dashboard' | 'karyawan-presensi' | 'karyawan-payroll';
+  activeNav?: 'home' | 'admin-dashboard' | 'admin-karyawan' | 'admin-presensi' | 'admin-cashbon' | 'admin-payroll' | 'admin-laporan' | 'karyawan-dashboard' | 'karyawan-presensi' | 'karyawan-cashbon' | 'karyawan-payroll';
 }
 
 const { title, activeNav = 'home' } = Astro.props;
@@ -79,6 +79,16 @@ const currentUser = await getCurrentUser(Astro.cookies);
                 Daftar Hadir
               </a>
               <a
+                href="/admin/cashbon"
+                class={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  activeNav === 'admin-cashbon'
+                    ? 'bg-slate-100 text-slate-900 font-semibold'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                }`}
+              >
+                Cashbon
+              </a>
+              <a
                 href="/admin/payroll"
                 class={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                   activeNav === 'admin-payroll'
@@ -87,6 +97,16 @@ const currentUser = await getCurrentUser(Astro.cookies);
                 }`}
               >
                 Kelola Gaji
+              </a>
+              <a
+                href="/admin/laporan"
+                class={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  activeNav === 'admin-laporan'
+                    ? 'bg-slate-100 text-slate-900 font-semibold'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                }`}
+              >
+                Laporan
               </a>
             </>
           )}
@@ -112,6 +132,16 @@ const currentUser = await getCurrentUser(Astro.cookies);
                 }`}
               >
                 Absen Mandiri
+              </a>
+              <a
+                href="/karyawan/cashbon"
+                class={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  activeNav === 'karyawan-cashbon'
+                    ? 'bg-slate-100 text-slate-900 font-semibold'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                }`}
+              >
+                Cashbon
               </a>
               <a
                 href="/karyawan/payroll"
@@ -213,6 +243,16 @@ const currentUser = await getCurrentUser(Astro.cookies);
               Daftar Hadir
             </a>
             <a
+              href="/admin/cashbon"
+              class={`block px-3.5 py-2.5 rounded-xl text-sm font-semibold transition ${
+                activeNav === 'admin-cashbon'
+                  ? 'bg-indigo-50 text-indigo-700'
+                  : 'text-slate-700 hover:bg-slate-50'
+              }`}
+            >
+              Cashbon
+            </a>
+            <a
               href="/admin/payroll"
               class={`block px-3.5 py-2.5 rounded-xl text-sm font-semibold transition ${
                 activeNav === 'admin-payroll'
@@ -221,6 +261,16 @@ const currentUser = await getCurrentUser(Astro.cookies);
               }`}
             >
               Kelola Gaji
+            </a>
+            <a
+              href="/admin/laporan"
+              class={`block px-3.5 py-2.5 rounded-xl text-sm font-semibold transition ${
+                activeNav === 'admin-laporan'
+                  ? 'bg-indigo-50 text-indigo-700'
+                  : 'text-slate-700 hover:bg-slate-50'
+              }`}
+            >
+              Laporan
             </a>
           </>
         )}
@@ -246,6 +296,16 @@ const currentUser = await getCurrentUser(Astro.cookies);
               }`}
             >
               Absen Mandiri
+            </a>
+            <a
+              href="/karyawan/cashbon"
+              class={`block px-3.5 py-2.5 rounded-xl text-sm font-semibold transition ${
+                activeNav === 'karyawan-cashbon'
+                  ? 'bg-indigo-50 text-indigo-700'
+                  : 'text-slate-700 hover:bg-slate-50'
+              }`}
+            >
+              Cashbon
             </a>
             <a
               href="/karyawan/payroll"

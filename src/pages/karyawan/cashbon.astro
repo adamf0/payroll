@@ -1,0 +1,342 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import { getCurrentUser } from '../../lib/auth';
+import { queryAll, queryOne } from '../../lib/db';
+import { formatRupiah, formatIndonesianDate } from '../../lib/payroll';
+
+const currentUser = await getCurrentUser(Astro.cookies);
+if (!currentUser || currentUser.role !== 'karyawan' || !currentUser.employee_id) {
+  return Astro.redirect('/login');
+}
+
+const employee = await queryOne<{
+  id: number;
+  nik: string;
+  name: string;
+  position: string | null;
+  base_rate: number;
+  scheme: string;
+}>(
+  `SELECT id, nik, name, position, base_rate, scheme FROM employees WHERE id = ?`,
+  [currentUser.employee_id]
+);
+
+if (!employee) {
+  return Astro.redirect('/login');
+}
+
+// Fetch all cashbon requests of this employee
+const rawRequests = await queryAll<{
+  id: number;
+  amount_requested: number;
+  amount_approved: number;
+  reason: string;
+  status: string;
+  disbursed_at: string | null;
+  admin_notes: string | null;
+  created_at: string;
+  total_repaid: number;
+}>(
+  `SELECT 
+     c.id, c.amount_requested, c.amount_approved, c.reason, c.status,
+     c.disbursed_at, c.admin_notes, c.created_at,
+     COALESCE(SUM(r.amount), 0) AS total_repaid
+   FROM cashbon_requests c
+   LEFT JOIN cashbon_repayments r ON c.id = r.cashbon_id
+   WHERE c.employee_id = ?
+   GROUP BY c.id, c.amount_requested, c.amount_approved, c.reason, c.status,
+            c.disbursed_at, c.admin_notes, c.created_at
+   ORDER BY c.created_at DESC`,
+  [currentUser.employee_id]
+);
+
+const requests = rawRequests.map((r) => {
+  const req = Number(r.amount_requested) || 0;
+  const app = Number(r.amount_approved) || 0;
+  const rep = Number(r.total_repaid) || 0;
+  const balance = Math.max(0, app - rep);
+  return {
+    ...r,
+    amount_requested: req,
+    amount_approved: app,
+    total_repaid: rep,
+    remaining_balance: balance,
+  };
+});
+
+// Calculate active total balance
+const totalActiveBalance = requests
+  .filter((r) => (r.status === 'approved' || r.status === 'partial') && r.disbursed_at)
+  .reduce((sum, r) => sum + r.remaining_balance, 0);
+
+const totalAllRepaid = requests.reduce((sum, r) => sum + r.total_repaid, 0);
+
+// Fetch repayment history
+const repayments = await queryAll<{
+  id: number;
+  amount: number;
+  repaid_at: string;
+  notes: string | null;
+  cashbon_id: number;
+}>(
+  `SELECT r.id, r.amount, r.repaid_at, r.notes, r.cashbon_id
+   FROM cashbon_repayments r
+   JOIN cashbon_requests c ON r.cashbon_id = c.id
+   WHERE c.employee_id = ?
+   ORDER BY r.repaid_at DESC`,
+  [currentUser.employee_id]
+);
+---
+
+<Layout title="Cashbon Mandiri" activeNav="karyawan-cashbon">
+  <div class="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+    <!-- Header -->
+    <div class="mb-6">
+      <div class="flex items-center gap-2">
+        <span class="text-xs px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 font-bold border border-indigo-200">
+          Portal Karyawan
+        </span>
+      </div>
+      <h1 class="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight mt-1">Cashbon & Pinjaman</h1>
+      <p class="text-xs sm:text-sm text-slate-500 mt-1">
+        Ajukan pinjaman mandiri secara transparan, pantau status persetujuan, dan sisa saldo cicilan penggajian.
+      </p>
+    </div>
+
+    <!-- Overview Cards -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+      <div class="bg-gradient-to-br from-indigo-900 to-slate-900 text-white p-5 rounded-3xl shadow-sm">
+        <span class="text-xs font-semibold text-indigo-200 block">Sisa Tagihan Cashbon Aktif</span>
+        <div class="text-2xl sm:text-3xl font-extrabold mt-1 tracking-tight">
+          {formatRupiah(totalActiveBalance)}
+        </div>
+        <p class="text-[11px] text-indigo-200/80 mt-2">
+          {totalActiveBalance > 0
+            ? 'Akan dipotong otomatis secara bertahap saat gajian tiba.'
+            : 'Tidak ada pinjaman berjalan saat ini.'}
+        </p>
+      </div>
+
+      <div class="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
+        <div>
+          <span class="text-xs font-semibold text-slate-500 block">Total Sudah Terbayar (Lunas)</span>
+          <div class="text-2xl font-extrabold text-emerald-600 mt-1">
+            {formatRupiah(totalAllRepaid)}
+          </div>
+        </div>
+        <div class="pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+          <span>Gaji Pokok / Tarif:</span>
+          <span class="font-bold text-slate-800">{formatRupiah(employee.base_rate)}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Action: Form Ajukan Cashbon Baru -->
+    <div class="bg-white rounded-3xl border border-slate-200/80 shadow-sm p-5 sm:p-6 mb-8">
+      <h2 class="text-base font-bold text-slate-900 flex items-center gap-2">
+        <span class="w-6 h-6 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center text-xs font-black">+</span>
+        Ajukan Cashbon Baru
+      </h2>
+      <p class="text-xs text-slate-500 mt-1">
+        Permohonan akan langsung ditinjau oleh Admin. Pastikan nominal sesuai dengan kebutuhan mendesak Anda.
+      </p>
+
+      <form id="cashbonApplyForm" onsubmit="submitApplyCashbon(event)" class="mt-4 space-y-4">
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1">
+            Nominal yang Diajukan (Rp) <span class="text-rose-500">*</span>
+          </label>
+          <input
+            type="number"
+            id="applyAmount"
+            required
+            min="10000"
+            step="5000"
+            placeholder="Contoh: 300000"
+            class="w-full px-4 py-2.5 rounded-2xl border border-slate-200 text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1">
+            Alasan Kebutuhan <span class="text-rose-500">*</span>
+          </label>
+          <textarea
+            id="applyReason"
+            required
+            rows="2"
+            placeholder="Jelaskan secara singkat keperluan mendesak Anda..."
+            class="w-full px-4 py-2.5 rounded-2xl border border-slate-200 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          ></textarea>
+        </div>
+
+        <div class="flex items-center justify-end">
+          <button
+            type="submit"
+            id="applySubmitBtn"
+            class="w-full sm:w-auto px-6 py-2.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition flex items-center justify-center gap-2"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"/></svg>
+            Kirim Pengajuan Cashbon
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Riwayat Pengajuan Cashbon -->
+    <div class="bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden mb-8">
+      <div class="p-4 border-b border-slate-100 flex items-center justify-between">
+        <h2 class="text-sm font-bold text-slate-900">Riwayat Pengajuan Cashbon Anda</h2>
+        <span class="text-xs text-slate-400">{requests.length} Pengajuan</span>
+      </div>
+
+      <div class="divide-y divide-slate-100">
+        {requests.length === 0 ? (
+          <div class="p-8 text-center text-slate-400 text-xs">
+            Belum pernah mengajukan cashbon.
+          </div>
+        ) : (
+          requests.map((r) => {
+            let statusBadge = 'bg-slate-100 text-slate-700';
+            let statusText = r.status;
+            if (r.status === 'pending') {
+              statusBadge = 'bg-amber-100 text-amber-800 border-amber-200';
+              statusText = 'Menunggu Persetujuan';
+            } else if (r.status === 'approved') {
+              statusBadge = 'bg-emerald-100 text-emerald-800 border-emerald-200';
+              statusText = 'Disetujui Penuh';
+            } else if (r.status === 'partial') {
+              statusBadge = 'bg-blue-100 text-blue-800 border-blue-200';
+              statusText = 'Disetujui Sebagian';
+            } else if (r.status === 'settled') {
+              statusBadge = 'bg-purple-100 text-purple-800 border-purple-200';
+              statusText = 'Lunas';
+            } else if (r.status === 'rejected') {
+              statusBadge = 'bg-rose-100 text-rose-800 border-rose-200';
+              statusText = 'Ditolak';
+            }
+
+            return (
+              <div class="p-4 sm:p-5 hover:bg-slate-50/60 transition">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div class="flex items-center gap-2">
+                    <span class={`px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${statusBadge}`}>
+                      {statusText}
+                    </span>
+                    <span class="text-xs text-slate-400 font-mono">
+                      {formatIndonesianDate(r.created_at.slice(0, 10))}
+                    </span>
+                  </div>
+
+                  <div class="text-left sm:text-right">
+                    <div class="text-xs text-slate-500">
+                      Diajukan: <span class="font-bold text-slate-800">{formatRupiah(r.amount_requested)}</span>
+                    </div>
+                    {r.amount_approved > 0 && (
+                      <div class="text-xs text-indigo-700 font-extrabold">
+                        Disetujui: {formatRupiah(r.amount_approved)}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div class="mt-2 text-xs text-slate-700 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                  <span class="font-semibold text-slate-500">Alasan:</span> {r.reason || '-'}
+                </div>
+
+                {r.admin_notes && (
+                  <div class="mt-1.5 text-xs text-slate-600 italic bg-amber-50/50 p-2 rounded-xl border border-amber-100">
+                    <span class="font-semibold text-amber-800 not-italic">Catatan Admin:</span> {r.admin_notes}
+                  </div>
+                )}
+
+                <div class="mt-3 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
+                  <div>
+                    {r.disbursed_at ? (
+                      <span class="text-emerald-700 font-medium">
+                        ✓ Uang dicairkan: {formatIndonesianDate(r.disbursed_at.slice(0, 10))}
+                      </span>
+                    ) : (
+                      (r.status === 'approved' || r.status === 'partial') && (
+                        <span class="text-amber-600 font-medium">⏳ Menunggu transfer/pencairan dana dari kasir</span>
+                      )
+                    )}
+                  </div>
+
+                  {r.disbursed_at && (
+                    <div class="font-semibold">
+                      Sisa Saldo: <span class={r.remaining_balance > 0 ? 'text-rose-600 font-bold' : 'text-emerald-600 font-bold'}>{formatRupiah(r.remaining_balance)}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+
+    <!-- Riwayat Potongan Penggajian (Repayments) -->
+    {repayments.length > 0 && (
+      <div class="bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden">
+        <div class="p-4 border-b border-slate-100">
+          <h2 class="text-sm font-bold text-slate-900">Riwayat Pemotongan Saat Penggajian</h2>
+          <span class="text-xs text-slate-400">Daftar cicilan yang telah terpotong pada slip gaji Anda</span>
+        </div>
+
+        <div class="divide-y divide-slate-100 text-xs">
+          {repayments.map((rp) => (
+            <div class="p-3.5 sm:p-4 flex items-center justify-between">
+              <div>
+                <div class="font-bold text-slate-800">{rp.notes || 'Potongan gaji'}</div>
+                <div class="text-[11px] text-slate-400 font-mono mt-0.5">
+                  {formatIndonesianDate(rp.repaid_at.slice(0, 10))}
+                </div>
+              </div>
+              <div class="text-right font-extrabold text-emerald-600 text-sm">
+                -{formatRupiah(Number(rp.amount))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    )}
+  </div>
+
+  <script is:inline>
+    async function submitApplyCashbon(e) {
+      e.preventDefault();
+      const amount = document.getElementById('applyAmount').value;
+      const reason = document.getElementById('applyReason').value.trim();
+      const btn = document.getElementById('applySubmitBtn');
+
+      if (!amount || !reason) {
+        alert('Lengkapi nominal dan alasan pinjaman');
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = 'Mengirim Permohonan...';
+
+      try {
+        const res = await fetch('/api/cashbon', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            amount: Number(amount),
+            reason,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Gagal mengajukan cashbon');
+
+        window.showToast?.('Permohonan cashbon berhasil diajukan!');
+        setTimeout(() => location.reload(), 600);
+      } catch (err) {
+        alert(err.message);
+        btn.disabled = false;
+        btn.textContent = 'Kirim Pengajuan Cashbon';
+      }
+    }
+  </script>
+</Layout>

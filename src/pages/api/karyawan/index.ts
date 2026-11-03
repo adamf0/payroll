@@ -36,11 +36,16 @@ export const POST: APIRoute = async ({ request, cookies }) => {
       id,
       nik,
       name,
+      position,
       phone,
       join_date,
       scheme,
       base_rate,
       payday_rule,
+      bank_name,
+      bank_account_number,
+      bank_account_holder,
+      fixed_allowance,
       is_active,
     } = data;
 
@@ -55,14 +60,17 @@ export const POST: APIRoute = async ({ request, cookies }) => {
       // UPDATE
       await execute(
         `UPDATE employees SET 
-          nik = ?, name = ?, phone = ?,
+          nik = ?, name = ?, position = ?, phone = ?,
           join_date = ?, scheme = ?, base_rate = ?,
-          payday_rule = ?, is_active = ?
+          payday_rule = ?, bank_name = ?, bank_account_number = ?,
+          bank_account_holder = ?, fixed_allowance = ?, is_active = ?
          WHERE id = ?`,
         [
-          nik, name, phone || '',
+          nik, name, position || null, phone || '',
           join_date, scheme, Number(base_rate) || 0,
-          payday_rule || '25', is_active !== undefined ? Number(is_active) : 1,
+          payday_rule || '25', bank_name || null, bank_account_number || null,
+          bank_account_holder || null, Number(fixed_allowance) || 0,
+          is_active !== undefined ? Number(is_active) : 1,
           id
         ]
       );
@@ -85,12 +93,14 @@ export const POST: APIRoute = async ({ request, cookies }) => {
       }
 
       const res = await execute(
-        `INSERT INTO employees (nik, name, phone, join_date, scheme, base_rate, payday_rule, is_active)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO employees (nik, name, position, phone, join_date, scheme, base_rate, payday_rule, bank_name, bank_account_number, bank_account_holder, fixed_allowance, is_active)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          nik, name, phone || '',
+          nik, name, position || null, phone || '',
           join_date || new Date().toISOString().split('T')[0],
-          scheme, Number(base_rate) || 0, payday_rule || '25', 1
+          scheme, Number(base_rate) || 0, payday_rule || '25',
+          bank_name || null, bank_account_number || null, bank_account_holder || null,
+          Number(fixed_allowance) || 0, 1
         ]
       );
 

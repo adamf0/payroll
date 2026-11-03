@@ -118,17 +118,82 @@ async function initMariaDbSchema() {
     await mysqlPool.query(q);
   }
 
+  // Create cashbon tables if not exists
+  await mysqlPool.query(`
+    CREATE TABLE IF NOT EXISTS cashbon_requests (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      employee_id INT NOT NULL,
+      amount_requested DECIMAL(15, 2) NOT NULL,
+      amount_approved DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
+      reason TEXT NOT NULL,
+      status VARCHAR(32) NOT NULL DEFAULT 'pending',
+      disbursed_at TIMESTAMP NULL,
+      admin_notes TEXT NULL,
+      approved_by INT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_cashbon_emp (employee_id),
+      CONSTRAINT fk_cashbon_emp FOREIGN KEY (employee_id) REFERENCES employees (id) ON DELETE CASCADE ON UPDATE CASCADE,
+      CONSTRAINT fk_cashbon_user FOREIGN KEY (approved_by) REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  `);
+
+  await mysqlPool.query(`
+    CREATE TABLE IF NOT EXISTS cashbon_repayments (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      cashbon_id INT NOT NULL,
+      settlement_id INT NULL,
+      amount DECIMAL(15, 2) NOT NULL,
+      repaid_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      notes VARCHAR(255) NULL,
+      INDEX idx_repay_cashbon (cashbon_id),
+      CONSTRAINT fk_repay_cashbon FOREIGN KEY (cashbon_id) REFERENCES cashbon_requests (id) ON DELETE CASCADE ON UPDATE CASCADE,
+      CONSTRAINT fk_repay_settlement FOREIGN KEY (settlement_id) REFERENCES payroll_settlements (id) ON DELETE CASCADE ON UPDATE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  `);
+
   try {
     await mysqlPool.query("ALTER TABLE users ADD COLUMN username VARCHAR(64) NULL UNIQUE AFTER id;");
-  } catch (err) {
-    // Column already exists
-  }
+  } catch (err) {}
 
   try {
     await mysqlPool.query("ALTER TABLE employees DROP COLUMN email;");
-  } catch (err) {
-    // Column already dropped or does not exist
-  }
+  } catch (err) {}
+
+  try {
+    await mysqlPool.query("ALTER TABLE employees ADD COLUMN position VARCHAR(100) NULL AFTER name;");
+  } catch (err) {}
+
+  try {
+    await mysqlPool.query("ALTER TABLE employees ADD COLUMN bank_name VARCHAR(50) NULL AFTER payday_rule;");
+  } catch (err) {}
+
+  try {
+    await mysqlPool.query("ALTER TABLE employees ADD COLUMN bank_account_number VARCHAR(50) NULL AFTER bank_name;");
+  } catch (err) {}
+
+  try {
+    await mysqlPool.query("ALTER TABLE employees ADD COLUMN bank_account_holder VARCHAR(100) NULL AFTER bank_account_number;");
+  } catch (err) {}
+
+  try {
+    await mysqlPool.query("ALTER TABLE employees ADD COLUMN fixed_allowance DECIMAL(15, 2) NOT NULL DEFAULT 0.00 AFTER bank_account_holder;");
+  } catch (err) {}
+
+  try {
+    await mysqlPool.query("ALTER TABLE payroll_settlements ADD COLUMN allowance DECIMAL(15, 2) NOT NULL DEFAULT 0.00 AFTER rate;");
+  } catch (err) {}
+
+  try {
+    await mysqlPool.query("ALTER TABLE payroll_settlements ADD COLUMN overtime_pay DECIMAL(15, 2) NOT NULL DEFAULT 0.00 AFTER allowance;");
+  } catch (err) {}
+
+  try {
+    await mysqlPool.query("ALTER TABLE payroll_settlements ADD COLUMN bonus DECIMAL(15, 2) NOT NULL DEFAULT 0.00 AFTER overtime_pay;");
+  } catch (err) {}
+
+  try {
+    await mysqlPool.query("ALTER TABLE payroll_settlements ADD COLUMN cashbon_deduction DECIMAL(15, 2) NOT NULL DEFAULT 0.00 AFTER bonus;");
+  } catch (err) {}
 
   try {
     await mysqlPool.query(`
@@ -136,9 +201,7 @@ async function initMariaDbSchema() {
       FOREIGN KEY (employee_id) REFERENCES employees (id)
       ON DELETE CASCADE ON UPDATE CASCADE;
     `);
-  } catch (err) {
-    // FK already exists
-  }
+  } catch (err) {}
 
   try {
     await mysqlPool.query(`
@@ -146,9 +209,7 @@ async function initMariaDbSchema() {
       FOREIGN KEY (employee_id) REFERENCES employees (id)
       ON DELETE CASCADE ON UPDATE CASCADE;
     `);
-  } catch (err) {
-    // FK already exists
-  }
+  } catch (err) {}
 
   try {
     await mysqlPool.query(`
@@ -156,9 +217,7 @@ async function initMariaDbSchema() {
       FOREIGN KEY (employee_id) REFERENCES employees (id)
       ON DELETE CASCADE ON UPDATE CASCADE;
     `);
-  } catch (err) {
-    // FK already exists
-  }
+  } catch (err) {}
 }
 
 async function seedMariaDbData() {
@@ -659,11 +718,16 @@ async function initSqliteFallback() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       nik TEXT NOT NULL UNIQUE,
       name TEXT NOT NULL,
+      position TEXT NULL,
       phone TEXT NOT NULL,
       join_date TEXT NOT NULL,
       scheme TEXT NOT NULL DEFAULT 'bulanan',
       base_rate REAL NOT NULL DEFAULT 0,
       payday_rule TEXT NOT NULL DEFAULT '25',
+      bank_name TEXT NULL,
+      bank_account_number TEXT NULL,
+      bank_account_holder TEXT NULL,
+      fixed_allowance REAL NOT NULL DEFAULT 0,
       is_active INTEGER NOT NULL DEFAULT 1,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
@@ -696,8 +760,32 @@ async function initSqliteFallback() {
       scheme TEXT NOT NULL,
       total_units REAL NOT NULL,
       rate REAL NOT NULL,
+      allowance REAL NOT NULL DEFAULT 0,
+      overtime_pay REAL NOT NULL DEFAULT 0,
+      bonus REAL NOT NULL DEFAULT 0,
+      cashbon_deduction REAL NOT NULL DEFAULT 0,
       amount_paid REAL NOT NULL,
       settled_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      notes TEXT NULL
+    );
+    CREATE TABLE IF NOT EXISTS cashbon_requests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+      amount_requested REAL NOT NULL,
+      amount_approved REAL NOT NULL DEFAULT 0,
+      reason TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      disbursed_at TEXT NULL,
+      admin_notes TEXT NULL,
+      approved_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS cashbon_repayments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      cashbon_id INTEGER NOT NULL REFERENCES cashbon_requests(id) ON DELETE CASCADE,
+      settlement_id INTEGER NULL REFERENCES payroll_settlements(id) ON DELETE CASCADE,
+      amount REAL NOT NULL,
+      repaid_at TEXT DEFAULT CURRENT_TIMESTAMP,
       notes TEXT NULL
     );
   `);
