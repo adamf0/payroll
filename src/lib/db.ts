@@ -216,6 +216,10 @@ async function initMariaDbSchema() {
   } catch (err) {}
 
   try {
+    await mysqlPool.query("ALTER TABLE cashbon_requests ADD COLUMN remaining_status VARCHAR(20) NOT NULL DEFAULT 'open' AFTER disbursed_at;");
+  } catch (err) {}
+
+  try {
     await mysqlPool.query(`
       ALTER TABLE users ADD CONSTRAINT fk_users_employee
       FOREIGN KEY (employee_id) REFERENCES employees (id)

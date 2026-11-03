@@ -32,6 +32,7 @@ const rawRequests = await queryAll<{
   amount_approved: number;
   reason: string;
   status: string;
+  remaining_status: 'open' | 'closed' | 'disbursed';
   disbursed_at: string | null;
   admin_notes: string | null;
   created_at: string;
@@ -39,13 +40,14 @@ const rawRequests = await queryAll<{
 }>(
   `SELECT 
      c.id, c.amount_requested, c.amount_approved, c.reason, c.status,
+     COALESCE(c.remaining_status, 'open') AS remaining_status,
      c.disbursed_at, c.admin_notes, c.created_at,
      COALESCE(SUM(r.amount), 0) AS total_repaid
    FROM cashbon_requests c
    LEFT JOIN cashbon_repayments r ON c.id = r.cashbon_id
    WHERE c.employee_id = ?
    GROUP BY c.id, c.amount_requested, c.amount_approved, c.reason, c.status,
-            c.disbursed_at, c.admin_notes, c.created_at
+            c.remaining_status, c.disbursed_at, c.admin_notes, c.created_at
    ORDER BY c.created_at DESC`,
   [currentUser.employee_id]
 );
@@ -55,12 +57,15 @@ const requests = rawRequests.map((r) => {
   const app = Number(r.amount_approved) || 0;
   const rep = Number(r.total_repaid) || 0;
   const balance = Math.max(0, app - rep);
+  const unDisbursed = Math.max(0, req - app);
   return {
     ...r,
     amount_requested: req,
     amount_approved: app,
     total_repaid: rep,
     remaining_balance: balance,
+    un_disbursed_amount: unDisbursed,
+    remaining_status: r.remaining_status || 'open',
   };
 });
 
@@ -346,7 +351,13 @@ const uniqueYears = Array.from(
               if (r.disbursed_at) {
                 if (r.remaining_balance > 0) {
                   statusBadge = 'bg-emerald-100 text-emerald-800 border-emerald-200';
-                  statusText = r.status === 'approved' ? 'Uang Cair • Menunggu Potong Gaji' : 'Disetujui Sebagian • Uang Cair';
+                  if (r.status === 'approved') {
+                    statusText = 'Uang Cair • Menunggu Potong Gaji';
+                  } else {
+                    statusText = r.remaining_status === 'closed'
+                      ? 'Disetujui Sebagian • 1x Selesai'
+                      : 'Disetujui Sebagian • Bertahap';
+                  }
                   filterCategory = 'approved';
                 } else {
                   statusBadge = 'bg-purple-100 text-purple-800 border-purple-200';
@@ -355,7 +366,13 @@ const uniqueYears = Array.from(
                 }
               } else {
                 statusBadge = 'bg-blue-100 text-blue-800 border-blue-200';
-                statusText = r.status === 'approved' ? 'Disetujui Penuh • Belum Cair' : 'Disetujui Sebagian • Belum Cair';
+                if (r.status === 'approved') {
+                  statusText = 'Disetujui Penuh • Belum Cair';
+                } else {
+                  statusText = r.remaining_status === 'closed'
+                    ? 'Disetujui Sebagian (1x) • Belum Cair'
+                    : 'Disetujui Sebagian • Belum Cair';
+                }
                 filterCategory = 'approved';
               }
             } else if (r.status === 'settled') {
@@ -450,6 +467,17 @@ const uniqueYears = Array.from(
                           ? `✓ Cair: ${formatIndonesianDate(r.disbursed_at.slice(0, 10))}`
                           : '⏳ Menunggu dicairkan kasir'}
                       </span>
+                      {r.status === 'partial' && (
+                        r.remaining_status === 'closed' ? (
+                          <span class="text-[10px] text-slate-500 block mt-1">
+                            1x pencairan. Sisa {formatRupiah(r.un_disbursed_amount)} ditutup.
+                          </span>
+                        ) : (
+                          <span class="text-[10px] text-amber-700 block mt-1 font-semibold">
+                            Cair bertahap. Sisa {formatRupiah(r.un_disbursed_amount)} belum cair.
+                          </span>
+                        )
+                      )}
                     </div>
 
                     <!-- Box 2: Sudah Terpotong dari Gaji -->
@@ -488,6 +516,30 @@ const uniqueYears = Array.from(
                       </span>
                     </div>
                   </div>
+                )}
+
+                {r.status === 'partial' && (
+                  r.remaining_status === 'closed' ? (
+                    <div class="p-2.5 rounded-2xl bg-slate-50 border border-slate-200 text-xs text-slate-700 flex items-start gap-2">
+                      <span class="text-slate-500 font-bold text-sm">ℹ️</span>
+                      <div>
+                        <strong>Keterangan Pencairan:</strong>
+                        <p class="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
+                          Dari pengajuan awal sebesar <strong>{formatRupiah(r.amount_requested)}</strong>, disetujui sebesar <strong>{formatRupiah(r.amount_approved)}</strong> untuk satu kali pencairan. Sisa permohonan sebesar <strong>{formatRupiah(r.un_disbursed_amount)}</strong> tidak dicairkan.
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div class="p-2.5 rounded-2xl bg-amber-50/70 border border-amber-200 text-xs text-amber-950 flex items-start gap-2">
+                      <span class="text-amber-600 font-bold text-sm">ℹ️</span>
+                      <div>
+                        <strong>Pencairan Bertahap:</strong>
+                        <p class="text-[11px] text-amber-900 mt-0.5 leading-relaxed">
+                          Dari total pengajuan <strong>{formatRupiah(r.amount_requested)}</strong>, disetujui dicairkan tahap ini sebesar <strong>{formatRupiah(r.amount_approved)}</strong>. Sisa sebesar <strong>{formatRupiah(r.un_disbursed_amount)}</strong> masih dapat dicairkan oleh Admin di kemudian hari.
+                        </p>
+                      </div>
+                    </div>
+                  )
                 )}
 
                 <!-- Baris 4: Informasi Arah & Sumber Data (Kemana arahnya & dari mana terpotong) -->

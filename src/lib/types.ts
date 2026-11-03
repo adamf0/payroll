@@ -93,6 +93,7 @@ export interface CashbonRequest {
   reason: string;
   status: CashbonStatus;
   disbursed_at?: string | null;
+  remaining_status?: 'open' | 'closed' | 'disbursed';
   admin_notes?: string | null;
   approved_by?: number | null;
   approved_by_name?: string | null;

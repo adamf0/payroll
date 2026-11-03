@@ -20,6 +20,7 @@ const rawCashbons = await queryAll<{
   amount_approved: number;
   reason: string;
   status: string;
+  remaining_status: 'open' | 'closed' | 'disbursed';
   disbursed_at: string | null;
   admin_notes: string | null;
   created_at: string;
@@ -27,6 +28,7 @@ const rawCashbons = await queryAll<{
 }>(
   `SELECT 
      c.id, c.employee_id, c.amount_requested, c.amount_approved, c.reason, c.status,
+     COALESCE(c.remaining_status, 'open') AS remaining_status,
      c.disbursed_at, c.admin_notes, c.created_at,
      e.name AS emp_name, e.nik AS emp_nik, e.position AS emp_position,
      COALESCE(SUM(r.amount), 0) AS total_repaid
@@ -34,7 +36,7 @@ const rawCashbons = await queryAll<{
    JOIN employees e ON c.employee_id = e.id
    LEFT JOIN cashbon_repayments r ON c.id = r.cashbon_id
    GROUP BY c.id, c.employee_id, c.amount_requested, c.amount_approved, c.reason, c.status,
-            c.disbursed_at, c.admin_notes, c.created_at, e.name, e.nik, e.position
+            c.remaining_status, c.disbursed_at, c.admin_notes, c.created_at, e.name, e.nik, e.position
    ORDER BY c.created_at DESC`
 );
 
@@ -43,12 +45,15 @@ const cashbons = rawCashbons.map((item) => {
   const app = Number(item.amount_approved) || 0;
   const rep = Number(item.total_repaid) || 0;
   const balance = Math.max(0, app - rep);
+  const unDisbursed = Math.max(0, req - app);
   return {
     ...item,
     amount_requested: req,
     amount_approved: app,
     total_repaid: rep,
     remaining_balance: balance,
+    un_disbursed_amount: unDisbursed,
+    remaining_status: item.remaining_status || 'open',
   };
 });
 
@@ -214,7 +219,9 @@ const employees = await queryAll<{ id: number; nik: string; name: string; positi
                   statusLabel = 'Disetujui Penuh';
                 } else if (c.status === 'partial') {
                   statusBadgeClass = 'bg-blue-100 text-blue-800 border-blue-200';
-                  statusLabel = 'Disetujui Sebagian';
+                  statusLabel = c.remaining_status === 'closed'
+                    ? 'Disetujui Sebagian (1x Selesai)'
+                    : 'Disetujui Sebagian (Bertahap)';
                 } else if (c.status === 'settled') {
                   statusBadgeClass = 'bg-purple-100 text-purple-800 border-purple-200';
                   statusLabel = 'Lunas';
@@ -246,7 +253,20 @@ const employees = await queryAll<{ id: number; nik: string; name: string; positi
                     </td>
                     <td class="py-3.5 px-4 whitespace-nowrap">
                       {c.amount_approved > 0 ? (
-                        <span class="font-extrabold text-indigo-900">{formatRupiah(c.amount_approved)}</span>
+                        <div>
+                          <span class="font-extrabold text-indigo-900 block">{formatRupiah(c.amount_approved)}</span>
+                          {c.status === 'partial' && (
+                            c.remaining_status === 'closed' ? (
+                              <span class="inline-block mt-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-600">
+                                1x Pencairan Saja
+                              </span>
+                            ) : (
+                              <span class="inline-block mt-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                                Sisa Pengajuan: {formatRupiah(c.un_disbursed_amount)}
+                              </span>
+                            )
+                          )}
+                        </div>
                       ) : (
                         <span class="text-slate-400">-</span>
                       )}
@@ -331,6 +351,33 @@ const employees = await queryAll<{ id: number; nik: string; name: string; positi
                           </button>
                         )}
 
+                        {c.status === 'partial' && c.disbursed_at && c.un_disbursed_amount > 0 && (
+                          c.remaining_status !== 'closed' ? (
+                            <>
+                              <button
+                                type="button"
+                                onclick={`openDisburseRemainingModal(${c.id}, '${c.emp_name.replace(/'/g, "\\'")}', ${c.amount_approved}, ${c.un_disbursed_amount}, ${c.amount_requested})`}
+                                class="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white transition shadow-sm"
+                                title="Cairkan sisa dana cashbon"
+                              >
+                                + Cairkan Sisa
+                              </button>
+                              <button
+                                type="button"
+                                onclick={`confirmCloseRemaining(${c.id}, '${c.emp_name.replace(/'/g, "\\'")}', ${c.un_disbursed_amount})`}
+                                class="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 transition"
+                                title="Tutup sisa pengajuan (tidak dicairkan lagi)"
+                              >
+                                Tutup Sisa
+                              </button>
+                            </>
+                          ) : (
+                            <span class="text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200 text-[11px] font-medium">
+                              1x Cair Selesai
+                            </span>
+                          )
+                        )}
+
                         {c.status === 'settled' && (
                           <span class="text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 text-[11px] font-bold">
                             Lunas Payroll
@@ -393,17 +440,39 @@ const employees = await queryAll<{ id: number; nik: string; name: string; positi
           </div>
         </div>
 
-        <div id="partialAmountContainer" class="hidden">
-          <label class="block text-xs font-semibold text-slate-600 mb-1">Nominal Disetujui (Rp)</label>
-          <input
-            type="text"
-            inputmode="numeric"
-            id="revApprovedAmount"
-            oninput="formatRupiahInput(this)"
-            placeholder="Contoh: 300.000"
-            class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          />
-          <span class="text-[10px] text-slate-400 mt-1 block">Tentukan plafon nominal yang disepakati</span>
+        <div id="partialAmountContainer" class="hidden space-y-3">
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">Nominal Disetujui Tahap Ini (Rp)</label>
+            <input
+              type="text"
+              inputmode="numeric"
+              id="revApprovedAmount"
+              oninput="formatRupiahInput(this)"
+              placeholder="Contoh: 300.000"
+              class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+            <span class="text-[10px] text-slate-400 mt-1 block">Tentukan nominal yang disetujui untuk dicairkan</span>
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">Opsi Sisa Pengajuan</label>
+            <div class="space-y-1.5">
+              <label class="flex items-start gap-2 p-2.5 rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-50">
+                <input type="radio" name="revRemainingMode" value="open" checked class="text-indigo-600 mt-0.5" />
+                <div>
+                  <span class="text-xs font-bold text-slate-800 block">Pencairan Bertahap</span>
+                  <span class="text-[10px] text-slate-500 block">Sisa dana cashbon dapat dicairkan kembali di lain waktu sampai lunas.</span>
+                </div>
+              </label>
+              <label class="flex items-start gap-2 p-2.5 rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-50">
+                <input type="radio" name="revRemainingMode" value="closed" class="text-indigo-600 mt-0.5" />
+                <div>
+                  <span class="text-xs font-bold text-slate-800 block">1x Pencairan Saja (Sisa Ditutup)</span>
+                  <span class="text-[10px] text-slate-500 block">Hanya cairkan nominal ini. Sisa pengajuan ditiadakan dan tidak dicairkan lagi.</span>
+                </div>
+              </label>
+            </div>
+          </div>
         </div>
 
         <div>
@@ -487,6 +556,84 @@ const employees = await queryAll<{ id: number; nik: string; name: string; positi
             class="px-4 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white transition shadow-sm"
           >
             Tolak Cashbon
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal Cairkan Sisa Cashbon -->
+  <div id="disburseRemainingModal" class="hidden fixed inset-0 z-50 overflow-y-auto bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl border border-slate-100">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+        <h3 class="text-base font-bold text-slate-900">Cairkan Sisa Cashbon</h3>
+        <button type="button" onclick="closeDisburseRemainingModal()" class="text-slate-400 hover:text-slate-600 text-lg font-bold">&times;</button>
+      </div>
+
+      <form id="disburseRemainingForm" onsubmit="submitDisburseRemaining(event)" class="mt-4 space-y-4">
+        <input type="hidden" id="remCashbonId" />
+        
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Karyawan</label>
+          <div id="remEmpName" class="font-bold text-sm text-slate-900 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200"></div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2 text-xs">
+          <div class="bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+            <span class="text-[10px] text-slate-500 block">Total Pengajuan</span>
+            <span id="remTotalRequested" class="font-bold text-slate-800 mt-0.5 block"></span>
+          </div>
+          <div class="bg-indigo-50/50 p-2.5 rounded-xl border border-indigo-100">
+            <span class="text-[10px] text-indigo-700 block">Sudah Dicairkan</span>
+            <span id="remAlreadyDisbursed" class="font-bold text-indigo-900 mt-0.5 block"></span>
+          </div>
+        </div>
+
+        <div class="bg-amber-50 p-3 rounded-xl border border-amber-200">
+          <span class="text-[11px] font-semibold text-amber-800 block">Sisa Dana Belum Dicairkan:</span>
+          <span id="remMaxAvailable" class="text-base font-extrabold text-amber-900 block mt-0.5"></span>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">
+            Nominal Dicairkan Sekarang (Rp) <span class="text-rose-500">*</span>
+          </label>
+          <input
+            type="text"
+            inputmode="numeric"
+            id="remDisburseAmount"
+            required
+            oninput="formatRupiahInput(this)"
+            placeholder="Masukkan nominal pencairan"
+            class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
+          />
+          <span class="text-[10px] text-slate-400 mt-1 block">Bisa dicairkan seluruh sisa atau sebagian lagi.</span>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Catatan Tambahan (Opsional)</label>
+          <textarea
+            id="remAdminNotes"
+            rows="2"
+            placeholder="Catatan transfer pencairan sisa..."
+            class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-500"
+          ></textarea>
+        </div>
+
+        <div class="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onclick="closeDisburseRemainingModal()"
+            class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 transition"
+          >
+            Batal
+          </button>
+          <button
+            type="submit"
+            id="remSubmitBtn"
+            class="px-4 py-2 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white transition shadow-sm"
+          >
+            Konfirmasi Pencairan Sisa
           </button>
         </div>
       </form>
@@ -784,6 +931,8 @@ const employees = await queryAll<{ id: number; nik: string; name: string; positi
 
       const radios = document.getElementsByName('decision');
       if (radios.length > 0) radios[0].checked = true;
+      const remRadios = document.getElementsByName('revRemainingMode');
+      if (remRadios.length > 0) remRadios[0].checked = true;
       window.toggleDecisionType();
 
       document.getElementById('reviewModal').classList.remove('hidden');
@@ -813,6 +962,7 @@ const employees = await queryAll<{ id: number; nik: string; name: string; positi
 
       let action = 'approve';
       let approvedAmount = currentReqAmount;
+      let remainingMode = 'open';
 
       if (decision === 'approve_partial') {
         action = 'partial';
@@ -821,6 +971,7 @@ const employees = await queryAll<{ id: number; nik: string; name: string; positi
           alert('Masukkan nominal disetujui yang valid');
           return;
         }
+        remainingMode = document.querySelector('input[name="revRemainingMode"]:checked')?.value || 'open';
       }
 
       btn.disabled = true;
@@ -834,6 +985,7 @@ const employees = await queryAll<{ id: number; nik: string; name: string; positi
             id: Number(id),
             action,
             amount_approved: approvedAmount,
+            remaining_mode: remainingMode,
             admin_notes: adminNotes,
           }),
         });
@@ -932,6 +1084,91 @@ const employees = await queryAll<{ id: number; nik: string; name: string; positi
         if (!res.ok) throw new Error(data.error || 'Gagal menandai pencairan');
 
         window.showToast?.(data.message || 'Cashbon telah ditandai dicairkan');
+        setTimeout(() => location.reload(), 500);
+      } catch (err) {
+        alert(err.message);
+      }
+    };
+
+    // Disburse Remaining Handlers
+    let currentMaxRemaining = 0;
+    window.openDisburseRemainingModal = function (id, empName, alreadyDisbursed, unDisbursed, totalReq) {
+      currentMaxRemaining = Number(unDisbursed) || 0;
+      document.getElementById('remCashbonId').value = id;
+      document.getElementById('remEmpName').textContent = empName;
+      document.getElementById('remTotalRequested').textContent = 'Rp ' + Number(totalReq).toLocaleString('id-ID');
+      document.getElementById('remAlreadyDisbursed').textContent = 'Rp ' + Number(alreadyDisbursed).toLocaleString('id-ID');
+      document.getElementById('remMaxAvailable').textContent = 'Rp ' + Number(unDisbursed).toLocaleString('id-ID');
+      document.getElementById('remDisburseAmount').value = Number(unDisbursed) ? new Intl.NumberFormat('id-ID').format(Number(unDisbursed)) : '';
+      document.getElementById('remAdminNotes').value = '';
+      document.getElementById('disburseRemainingModal').classList.remove('hidden');
+    };
+
+    window.closeDisburseRemainingModal = function () {
+      document.getElementById('disburseRemainingModal').classList.add('hidden');
+    };
+
+    window.submitDisburseRemaining = async function (e) {
+      e.preventDefault();
+      const id = document.getElementById('remCashbonId').value;
+      const amount = window.getRawNumber(document.getElementById('remDisburseAmount'));
+      const adminNotes = document.getElementById('remAdminNotes').value.trim();
+      const btn = document.getElementById('remSubmitBtn');
+
+      if (!amount || amount <= 0) {
+        alert('Masukkan nominal pencairan yang valid');
+        return;
+      }
+      if (amount > currentMaxRemaining) {
+        alert(`Nominal pencairan melebihi sisa dana (Maksimal Rp ${Number(currentMaxRemaining).toLocaleString('id-ID')})`);
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = 'Memproses...';
+
+      try {
+        const res = await fetch('/api/cashbon/action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: Number(id),
+            action: 'disburse_remaining',
+            amount_to_disburse: Number(amount),
+            admin_notes: adminNotes,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Gagal mencairkan sisa cashbon');
+
+        window.showToast?.(data.message || 'Sisa cashbon berhasil dicairkan');
+        setTimeout(() => location.reload(), 500);
+      } catch (err) {
+        alert(err.message);
+        btn.disabled = false;
+        btn.textContent = 'Konfirmasi Pencairan Sisa';
+      }
+    };
+
+    window.confirmCloseRemaining = async function (id, empName, unDisbursed) {
+      const confirmed = confirm(
+        `Apakah Anda yakin ingin menutup sisa permohonan cashbon untuk ${empName} sebesar Rp ${Number(unDisbursed).toLocaleString('id-ID')}?\n\nSetelah ditutup, sisa dana ini tidak akan dicairkan lagi.`
+      );
+      if (!confirmed) return;
+
+      try {
+        const res = await fetch('/api/cashbon/action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: Number(id),
+            action: 'close_remaining',
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Gagal menutup sisa cashbon');
+
+        window.showToast?.(data.message || 'Sisa permohonan cashbon telah ditutup');
         setTimeout(() => location.reload(), 500);
       } catch (err) {
         alert(err.message);
