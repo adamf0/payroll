@@ -14,6 +14,23 @@ const payrollItems = await computeAllRealtimePayroll();
 const totalAccrued = payrollItems.reduce((sum, item) => sum + (Number(item.accrued_amount) || 0), 0);
 
 const todayStr = getJakartaTodayStr();
+const currentYearStr = String(new Date().getFullYear());
+
+const monthsList = [
+  { val: 'all', label: 'Semua Bulan' },
+  { val: '01', label: 'Januari' },
+  { val: '02', label: 'Februari' },
+  { val: '03', label: 'Maret' },
+  { val: '04', label: 'April' },
+  { val: '05', label: 'Mei' },
+  { val: '06', label: 'Juni' },
+  { val: '07', label: 'Juli' },
+  { val: '08', label: 'Agustus' },
+  { val: '09', label: 'September' },
+  { val: '10', label: 'Oktober' },
+  { val: '11', label: 'November' },
+  { val: '12', label: 'Desember' },
+];
 
 // Helper: Tentukan kategori status tagihan (hari ini bayar, belum terbayar, sedang berlangsung)
 function getItemStatus(item: typeof payrollItems[0]): 'hari_ini_bayar' | 'belum_terbayar' | 'sedang_berlangsung' {
@@ -39,15 +56,20 @@ const enrichedItems = payrollItems.map((item) => ({
   statusCategory: getItemStatus(item),
 }));
 
-// Hitung total item per kategori status (default filter tanggal: hari ini)
+// Hitung total item per kategori status untuk tahun berjalan (default filter bulan: semua bulan)
 const initialDefaultItems = enrichedItems.filter((i) => {
-  const pStart = i.period_start || i.period_end || '';
-  const pEnd = i.period_end || i.period_start || '';
-  return !(pEnd < todayStr || pStart > todayStr);
+  const itemStart = i.period_start || i.period_end || '';
+  const itemEnd = i.period_end || i.period_start || '';
+  const yStart = `${currentYearStr}-01-01`;
+  const yEnd = `${currentYearStr}-12-31`;
+  return !(itemEnd < yStart || itemStart > yEnd);
 });
 const countHariIni = initialDefaultItems.filter((i) => i.statusCategory === 'hari_ini_bayar').length;
 const countBelumBayar = initialDefaultItems.filter((i) => i.statusCategory === 'belum_terbayar').length;
 const countBerlangsung = initialDefaultItems.filter((i) => i.statusCategory === 'sedang_berlangsung').length;
+
+const defaultStatus: 'hari_ini_bayar' | 'belum_terbayar' | 'sedang_berlangsung' =
+  countHariIni > 0 ? 'hari_ini_bayar' : countBelumBayar > 0 ? 'belum_terbayar' : 'sedang_berlangsung';
 
 // Kelompokkan data per nama karyawan
 interface EmployeeGroup {
@@ -73,6 +95,15 @@ const employeeGroups = Array.from(employeeGroupsMap.values()).sort((a, b) => a.e
 
 // Unique employees untuk dropdown filter
 const uniqueEmployees = employeeGroups.map((g) => g.employee);
+
+// Unique years untuk dropdown filter
+const uniqueYears = Array.from(
+  new Set([
+    currentYearStr,
+    ...enrichedItems.map((i) => (i.period_end || i.period_start || '').slice(0, 4)).filter((y) => y && y.length === 4),
+    ...settlements.map((s) => (s.period_end || s.settled_at || '').slice(0, 4)).filter((y) => y && y.length === 4),
+  ])
+).sort((a, b) => b.localeCompare(a));
 
 // Fetch active cashbon balances per employee
 const activeCashbonRows = await queryAll<{
@@ -155,24 +186,39 @@ const settlements = await queryAll<{
         <div class="flex flex-wrap items-center gap-2" id="statusTabs">
           <button
             type="button"
+            data-status-val="hari_ini_bayar"
             onclick="filterStatus('hari_ini_bayar', this)"
-            class="status-tab px-3.5 py-2 rounded-xl text-xs font-bold transition bg-indigo-600 text-white shadow-sm flex items-center gap-1.5"
+            class={`status-tab px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
+              defaultStatus === 'hari_ini_bayar'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
+            }`}
           >
             <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
             Hari Ini Bayar (<span id="badgeCountHariIni">{countHariIni}</span>)
           </button>
           <button
             type="button"
+            data-status-val="belum_terbayar"
             onclick="filterStatus('belum_terbayar', this)"
-            class="status-tab px-3.5 py-2 rounded-xl text-xs font-bold transition bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 flex items-center gap-1.5"
+            class={`status-tab px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
+              defaultStatus === 'belum_terbayar'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
+            }`}
           >
             <span class="w-2 h-2 rounded-full bg-rose-500"></span>
             Belum Terbayar (<span id="badgeCountBelumBayar">{countBelumBayar}</span>)
           </button>
           <button
             type="button"
+            data-status-val="sedang_berlangsung"
             onclick="filterStatus('sedang_berlangsung', this)"
-            class="status-tab px-3.5 py-2 rounded-xl text-xs font-bold transition bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 flex items-center gap-1.5"
+            class={`status-tab px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
+              defaultStatus === 'sedang_berlangsung'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
+            }`}
           >
             <span class="w-2 h-2 rounded-full bg-amber-500"></span>
             Sedang Berlangsung (<span id="badgeCountBerlangsung">{countBerlangsung}</span>)
@@ -181,6 +227,31 @@ const settlements = await queryAll<{
 
         <!-- Filter Dropdown & Search -->
         <div class="flex flex-wrap items-center gap-2">
+          <!-- Filter Bulan -->
+          <select
+            id="monthFilter"
+            onchange="onMonthOrYearChange()"
+            class="px-3 py-2 rounded-xl border border-slate-200 text-xs font-medium text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-sm"
+            title="Pilih Bulan"
+          >
+            {monthsList.map((m) => (
+              <option value={m.val}>{m.label}</option>
+            ))}
+          </select>
+
+          <!-- Filter Tahun -->
+          <select
+            id="yearFilter"
+            onchange="onMonthOrYearChange()"
+            class="px-3 py-2 rounded-xl border border-slate-200 text-xs font-medium text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-sm"
+            title="Pilih Tahun"
+          >
+            <option value="all">Semua Tahun</option>
+            {uniqueYears.map((y) => (
+              <option value={y} selected={y === currentYearStr}>{y}</option>
+            ))}
+          </select>
+
           <!-- Filter Skema -->
           <select
             id="schemeFilter"
@@ -260,15 +331,15 @@ const settlements = await queryAll<{
             </div>
           </div>
 
-          <!-- Filter Rentang Tanggal -->
-          <div class="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 focus-within:ring-2 focus-within:ring-indigo-500 shadow-sm">
+          <!-- Filter Rentang Tanggal Spesifik -->
+          <div class="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 focus-within:ring-2 focus-within:ring-indigo-500 shadow-sm" title="Rentang Tanggal Spesifik">
             <svg class="w-3.5 h-3.5 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
             <input
               type="date"
               id="startDateFilter"
-              value={todayStr}
-              onchange="applyFilters()"
-              oninput="applyFilters()"
+              value=""
+              onchange="onSpecificDateChange()"
+              oninput="onSpecificDateChange()"
               class="text-xs font-medium text-slate-700 bg-transparent focus:outline-none cursor-pointer w-[110px] sm:w-auto"
               title="Dari Tanggal"
             />
@@ -276,9 +347,9 @@ const settlements = await queryAll<{
             <input
               type="date"
               id="endDateFilter"
-              value={todayStr}
-              onchange="applyFilters()"
-              oninput="applyFilters()"
+              value=""
+              onchange="onSpecificDateChange()"
+              oninput="onSpecificDateChange()"
               class="text-xs font-medium text-slate-700 bg-transparent focus:outline-none cursor-pointer w-[110px] sm:w-auto"
               title="Sampai Tanggal"
             />
@@ -286,7 +357,7 @@ const settlements = await queryAll<{
               type="button"
               id="clearDateBtn"
               onclick="clearDateFilter()"
-              class="text-slate-400 hover:text-rose-600 text-xs px-1 font-bold"
+              class="hidden text-slate-400 hover:text-rose-600 text-xs px-1 font-bold"
               title="Hapus filter tanggal"
             >
               ✕
@@ -301,7 +372,7 @@ const settlements = await queryAll<{
       <div class="p-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h2 class="text-sm font-bold text-slate-900">
-            Daftar Gaji Karyawan (<span id="visibleRowCount">{countHariIni}</span> Tagihan)
+            Daftar Gaji Karyawan (<span id="visibleRowCount">{defaultStatus === 'hari_ini_bayar' ? countHariIni : defaultStatus === 'belum_terbayar' ? countBelumBayar : countBerlangsung}</span> Tagihan)
           </h2>
           <span class="text-[11px] text-slate-400">Dikelompokkan rapi per nama karyawan</span>
         </div>
@@ -343,8 +414,8 @@ const settlements = await queryAll<{
           </thead>
           <tbody class="divide-y divide-slate-100" id="payrollTableBody">
             {employeeGroups.map((grp) => {
-              const hariIniItems = grp.items.filter((i) => i.statusCategory === 'hari_ini_bayar');
-              const initialSum = hariIniItems.reduce((s, it) => s + (Number(it.accrued_amount) || 0), 0);
+              const defaultStatusItems = grp.items.filter((i) => i.statusCategory === defaultStatus);
+              const initialSum = defaultStatusItems.reduce((s, it) => s + (Number(it.accrued_amount) || 0), 0);
               return (
                 <>
                   {/* Heading Pengelompokan Karyawan */}
@@ -356,7 +427,7 @@ const settlements = await queryAll<{
                     data-scheme={grp.employee.scheme}
                     data-emp-name={grp.employee.name.toLowerCase()}
                     data-active-cashbon={cashbonMap.get(grp.employee.id) || 0}
-                    style={hariIniItems.length > 0 ? '' : 'display: none;'}
+                    style={defaultStatusItems.length > 0 ? '' : 'display: none;'}
                   >
                     <td colspan="9" class="py-2.5 px-4">
                       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -379,7 +450,7 @@ const settlements = await queryAll<{
                               </span>
                             )}
                             <span class="text-xs text-slate-500 ml-2">
-                              <span class="capitalize font-semibold text-slate-700">{grp.employee.scheme.replace('_', ' ')}</span> • <span class="group-count font-bold text-indigo-700">{hariIniItems.length} Tagihan</span>
+                              <span class="capitalize font-semibold text-slate-700">{grp.employee.scheme.replace('_', ' ')}</span> • <span class="group-count font-bold text-indigo-700">{defaultStatusItems.length} Tagihan</span>
                             </span>
                           </div>
                         </div>
@@ -414,7 +485,7 @@ const settlements = await queryAll<{
                     data-period-start={item.period_start || ''}
                     data-period-end={item.period_end || ''}
                     data-period-label={item.period_label.toLowerCase()}
-                    style={item.statusCategory === 'hari_ini_bayar' ? '' : 'display: none;'}
+                    style={item.statusCategory === defaultStatus ? '' : 'display: none;'}
                   >
                     <td class="py-3.5 px-3 w-10 text-center">
                       <input
@@ -547,7 +618,7 @@ const settlements = await queryAll<{
           })}
           </tbody>
         </table>
-        <div id="emptyFilterMsg" class="py-10 text-center text-slate-400 text-xs" style={countHariIni === 0 ? '' : 'display: none;'}>
+        <div id="emptyFilterMsg" class="py-10 text-center text-slate-400 text-xs" style={(defaultStatus === 'hari_ini_bayar' ? countHariIni : defaultStatus === 'belum_terbayar' ? countBelumBayar : countBerlangsung) === 0 ? '' : 'display: none;'}>
           Tidak ada tagihan gaji yang cocok dengan filter yang dipilih.
         </div>
       </div>
@@ -906,8 +977,21 @@ const settlements = await queryAll<{
   </div>
 
   <script is:inline>
-    let currentStatus = 'hari_ini_bayar';
+    const initialActiveTab = document.querySelector('.status-tab.bg-indigo-600');
+    let currentStatus = initialActiveTab ? (initialActiveTab.getAttribute('data-status-val') || 'hari_ini_bayar') : 'hari_ini_bayar';
     let currentScheme = 'all';
+
+    window.onMonthOrYearChange = function() {
+      const s = document.getElementById('startDateFilter');
+      const e = document.getElementById('endDateFilter');
+      if (s) s.value = '';
+      if (e) e.value = '';
+      applyFilters();
+    };
+
+    window.onSpecificDateChange = function() {
+      applyFilters();
+    };
 
     function formatRupiahJs(amount) {
       return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(amount);
@@ -1021,6 +1105,12 @@ const settlements = await queryAll<{
       const empSelect = document.getElementById('empFilter');
       const empVal = empSelect ? empSelect.value : '';
 
+      const monthSelect = document.getElementById('monthFilter');
+      const monthVal = monthSelect ? monthSelect.value : 'all';
+
+      const yearSelect = document.getElementById('yearFilter');
+      const yearVal = yearSelect ? yearSelect.value : 'all';
+
       const startDateInput = document.getElementById('startDateFilter');
       const endDateInput = document.getElementById('endDateFilter');
       const startDateVal = startDateInput ? startDateInput.value : '';
@@ -1052,19 +1142,40 @@ const settlements = await queryAll<{
         const matchScheme = currentScheme === 'all' || rowScheme === currentScheme;
         const matchEmp = !empVal || rowEmpId === empVal;
 
+        const itemStart = pStart || pEnd || '';
+        const itemEnd = pEnd || pStart || '';
+
         let matchDate = true;
-        if (startDateVal && endDateVal) {
-          const minDate = startDateVal <= endDateVal ? startDateVal : endDateVal;
-          const maxDate = startDateVal <= endDateVal ? endDateVal : startDateVal;
-          const itemStart = pStart || pEnd || '';
-          const itemEnd = pEnd || pStart || '';
-          matchDate = !(itemEnd < minDate || itemStart > maxDate);
-        } else if (startDateVal) {
-          const itemEnd = pEnd || pStart || '';
-          matchDate = itemEnd >= startDateVal;
-        } else if (endDateVal) {
-          const itemStart = pStart || pEnd || '';
-          matchDate = itemStart <= endDateVal;
+        if (startDateVal || endDateVal) {
+          if (startDateVal && endDateVal) {
+            const minDate = startDateVal <= endDateVal ? startDateVal : endDateVal;
+            const maxDate = startDateVal <= endDateVal ? endDateVal : startDateVal;
+            matchDate = !(itemEnd < minDate || itemStart > maxDate);
+          } else if (startDateVal) {
+            matchDate = itemEnd >= startDateVal;
+          } else if (endDateVal) {
+            matchDate = itemStart <= endDateVal;
+          }
+        } else {
+          if (yearVal !== 'all' && monthVal !== 'all') {
+            const y = parseInt(yearVal, 10);
+            const m = parseInt(monthVal, 10);
+            const lastDay = new Date(y, m, 0).getDate();
+            const mStart = `${yearVal}-${String(m).padStart(2, '0')}-01`;
+            const mEnd = `${yearVal}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+            matchDate = !(itemEnd < mStart || itemStart > mEnd);
+          } else if (yearVal !== 'all') {
+            const yStart = `${yearVal}-01-01`;
+            const yEnd = `${yearVal}-12-31`;
+            matchDate = !(itemEnd < yStart || itemStart > yEnd);
+          } else if (monthVal !== 'all') {
+            const targetM = monthVal.padStart(2, '0');
+            const startM = itemStart.length >= 7 ? itemStart.slice(5, 7) : '';
+            const endM = itemEnd.length >= 7 ? itemEnd.slice(5, 7) : '';
+            matchDate = startM === targetM || endM === targetM;
+          } else {
+            matchDate = true;
+          }
         }
 
         // Hitung badge dinamis berdasarkan kriteria filter aktif (skema, karyawan, tanggal)
