@@ -52,6 +52,20 @@ const rawRequests = await queryAll<{
   [currentUser.employee_id]
 );
 
+function humanizeNotes(notes: string | null | undefined): string {
+  if (!notes) return '';
+  return notes
+    .replace(/\s*\[Dana tahap ini telah dicairkan\]/gi, '')
+    .replace(/\s*\[Dana dicairkan\]/gi, '')
+    .replace(/\[Sisa (?:Rp )?[\d\.,]+ (?:ditutup|tidak dicairkan)[^\]]*?(?:-\s*Alasan:\s*([^\]]+))?\]/gi, (_m, reason) => {
+      return reason ? `. Sisa pinjaman tidak dicairkan: ${reason.trim()}` : '. Sisa pinjaman tidak dicairkan.';
+    })
+    .replace(/\[([^\]]+)\]/g, '$1')
+    .replace(/\s*\.\s*\./g, '.')
+    .replace(/^\s*\.\s*/, '')
+    .trim();
+}
+
 const requests = rawRequests.map((r) => {
   const req = Number(r.amount_requested) || 0;
   const app = Number(r.amount_approved) || 0;
@@ -66,6 +80,7 @@ const requests = rawRequests.map((r) => {
     remaining_balance: balance,
     un_disbursed_amount: unDisbursed,
     remaining_status: r.remaining_status || 'open',
+    admin_notes: humanizeNotes(r.admin_notes),
   };
 });
 

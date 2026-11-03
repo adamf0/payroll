@@ -177,13 +177,17 @@ export const POST: APIRoute = async ({ request, cookies }) => {
           headers: { 'Content-Type': 'application/json' },
         });
       }
-      const updatedNotes = `${cashbon.admin_notes || ''} [Dana tahap ini telah dicairkan]`.trim();
+      let updatedNotes = cashbon.admin_notes || '';
+      if (admin_notes && admin_notes.trim()) {
+        updatedNotes = updatedNotes ? `${updatedNotes}. ${admin_notes.trim()}` : admin_notes.trim();
+      }
+
       await execute(
         `UPDATE cashbon_requests SET 
           disbursed_at = NOW(),
           admin_notes = ?
          WHERE id = ?`,
-        [updatedNotes, id]
+        [updatedNotes || null, id]
       );
 
       await recordAuditLog({
@@ -257,8 +261,11 @@ export const POST: APIRoute = async ({ request, cookies }) => {
       const newStatus = isFull ? 'approved' : 'partial';
       const newRemainingStatus = isFull ? 'disbursed' : 'open';
 
-      const customNote = data.admin_notes ? ` - ${data.admin_notes}` : '';
-      const updatedNotes = `${cashbon.admin_notes || ''} [Sisa dana Rp ${amountToAdd.toLocaleString('id-ID')} dicairkan${customNote}]`.trim();
+      const customNote = (data.admin_notes || '').trim();
+      let updatedNotes = cashbon.admin_notes || '';
+      if (customNote) {
+        updatedNotes = updatedNotes ? `${updatedNotes}. ${customNote}` : customNote;
+      }
 
       await execute(
         `UPDATE cashbon_requests SET 
@@ -267,7 +274,7 @@ export const POST: APIRoute = async ({ request, cookies }) => {
           remaining_status = ?,
           admin_notes = ?
          WHERE id = ?`,
-        [newTotalApproved, newStatus, newRemainingStatus, updatedNotes, id]
+        [newTotalApproved, newStatus, newRemainingStatus, updatedNotes || null, id]
       );
 
       await recordAuditLog({
@@ -307,8 +314,12 @@ export const POST: APIRoute = async ({ request, cookies }) => {
       const unDisbursed = Math.max(0, reqAmount - currentApproved);
 
       const reasonText = (data.admin_notes || data.reason || '').trim();
-      const customNote = reasonText ? ` - Alasan: ${reasonText}` : '';
-      const updatedNotes = `${cashbon.admin_notes || ''} [Sisa Rp ${unDisbursed.toLocaleString('id-ID')} ditutup (1x pencairan selesai)${customNote}]`.trim();
+      const closeSentence = reasonText
+        ? `Sisa pinjaman tidak dicairkan: ${reasonText}`
+        : 'Sisa pinjaman tidak dicairkan.';
+      const updatedNotes = cashbon.admin_notes
+        ? `${cashbon.admin_notes}. ${closeSentence}`
+        : closeSentence;
 
       await execute(
         `UPDATE cashbon_requests SET 
