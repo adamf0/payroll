@@ -306,8 +306,9 @@ export const POST: APIRoute = async ({ request, cookies }) => {
       const reqAmount = Number(cashbon.amount_requested);
       const unDisbursed = Math.max(0, reqAmount - currentApproved);
 
-      const customNote = data.admin_notes ? ` - ${data.admin_notes}` : '';
-      const updatedNotes = `${cashbon.admin_notes || ''} [Sisa Rp ${unDisbursed.toLocaleString('id-ID')} tidak dicairkan (1x pencairan selesai)${customNote}]`.trim();
+      const reasonText = (data.admin_notes || data.reason || '').trim();
+      const customNote = reasonText ? ` - Alasan: ${reasonText}` : '';
+      const updatedNotes = `${cashbon.admin_notes || ''} [Sisa Rp ${unDisbursed.toLocaleString('id-ID')} ditutup (1x pencairan selesai)${customNote}]`.trim();
 
       await execute(
         `UPDATE cashbon_requests SET 
@@ -332,7 +333,7 @@ export const POST: APIRoute = async ({ request, cookies }) => {
           remaining_status: 'closed',
           admin_notes: updatedNotes,
         },
-        notes: `Sisa pengajuan cashbon Rp ${unDisbursed.toLocaleString('id-ID')} ditutup (1x pencairan saja)`,
+        notes: `Sisa pengajuan cashbon Rp ${unDisbursed.toLocaleString('id-ID')} ditutup (1x pencairan saja)${customNote}`,
       });
 
       return new Response(JSON.stringify({

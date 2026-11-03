@@ -383,7 +383,7 @@ const employees = await queryAll<{ id: number; nik: string; name: string; positi
                               </button>
                               <button
                                 type="button"
-                                onclick={`confirmCloseRemaining(${c.id}, '${c.emp_name.replace(/'/g, "\\'")}', ${c.un_disbursed_amount})`}
+                                onclick={`openCloseRemainingModal(${c.id}, '${c.emp_name.replace(/'/g, "\\'")}', ${c.un_disbursed_amount})`}
                                 class="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 transition"
                                 title="Tutup sisa pengajuan (tidak dicairkan lagi)"
                               >
@@ -653,6 +653,66 @@ const employees = await queryAll<{ id: number; nik: string; name: string; positi
             class="px-4 py-2 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white transition shadow-sm"
           >
             Konfirmasi Pencairan Sisa
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal Tutup Sisa Cashbon (dengan Alasan) -->
+  <div id="closeRemainingModal" class="hidden fixed inset-0 z-50 overflow-y-auto bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl border border-slate-100">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+        <h3 class="text-base font-bold text-slate-900 flex items-center gap-2">
+          <span class="w-6 h-6 rounded-full bg-slate-100 text-slate-700 flex items-center justify-center text-xs">✕</span>
+          <span>Tutup Sisa Pengajuan Cashbon</span>
+        </h3>
+        <button type="button" onclick="closeCloseRemainingModal()" class="text-slate-400 hover:text-slate-600 text-lg font-bold">&times;</button>
+      </div>
+
+      <form id="closeRemainingForm" onsubmit="submitCloseRemaining(event)" class="mt-4 space-y-4">
+        <input type="hidden" id="clsCashbonId" />
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Karyawan</label>
+          <div id="clsEmpName" class="font-bold text-sm text-slate-900 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200"></div>
+        </div>
+
+        <div class="bg-amber-50 p-3 rounded-xl border border-amber-200 text-xs">
+          <span class="text-[11px] font-semibold text-amber-800 block">Sisa Dana Yang Ditutup:</span>
+          <span id="clsUnDisbursed" class="text-base font-extrabold text-amber-900 block mt-0.5"></span>
+          <span class="text-[10px] text-amber-700 block mt-1">
+            Setelah ditutup, sisa dana ini ditiadakan dan tidak akan dicairkan lagi ke karyawan.
+          </span>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">
+            Alasan Penutupan Sisa Cashbon <span class="text-rose-500">*</span>
+          </label>
+          <textarea
+            id="clsAdminNotes"
+            rows="3"
+            required
+            placeholder="Jelaskan alasan sisa cashbon ditutup (contoh: Karyawan membatalkan sisa pinjaman, kebutuhan sudah cukup, kesepakatan hanya cair 1x, dll)..."
+            class="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-500 placeholder:text-slate-400"
+          ></textarea>
+        </div>
+
+        <div class="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onclick="closeCloseRemainingModal()"
+            class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 transition"
+          >
+            Batal
+          </button>
+          <button
+            type="submit"
+            id="clsSubmitBtn"
+            class="px-4 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-900 text-white transition shadow-sm"
+          >
+            Ya, Tutup Sisa Cashbon
           </button>
         </div>
       </form>
@@ -1169,11 +1229,33 @@ const employees = await queryAll<{ id: number; nik: string; name: string; positi
       }
     };
 
-    window.confirmCloseRemaining = async function (id, empName, unDisbursed) {
-      const confirmed = confirm(
-        `Apakah Anda yakin ingin menutup sisa permohonan cashbon untuk ${empName} sebesar Rp ${Number(unDisbursed).toLocaleString('id-ID')}?\n\nSetelah ditutup, sisa dana ini tidak akan dicairkan lagi.`
-      );
-      if (!confirmed) return;
+    window.openCloseRemainingModal = function (id, empName, unDisbursed) {
+      document.getElementById('clsCashbonId').value = id;
+      document.getElementById('clsEmpName').textContent = empName;
+      document.getElementById('clsUnDisbursed').textContent = 'Rp ' + Number(unDisbursed || 0).toLocaleString('id-ID');
+      document.getElementById('clsAdminNotes').value = '';
+      document.getElementById('closeRemainingModal').classList.remove('hidden');
+    };
+
+    window.closeCloseRemainingModal = function () {
+      document.getElementById('closeRemainingModal').classList.add('hidden');
+    };
+
+    window.submitCloseRemaining = async function (e) {
+      e.preventDefault();
+      const id = document.getElementById('clsCashbonId')?.value;
+      const adminNotes = (document.getElementById('clsAdminNotes')?.value || '').trim();
+      const btn = document.getElementById('clsSubmitBtn');
+
+      if (!adminNotes) {
+        alert('Mohon masukkan alasan penutupan sisa cashbon');
+        return;
+      }
+
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Menutup sisa...';
+      }
 
       try {
         const res = await fetch('/api/cashbon/action', {
@@ -1182,6 +1264,7 @@ const employees = await queryAll<{ id: number; nik: string; name: string; positi
           body: JSON.stringify({
             id: Number(id),
             action: 'close_remaining',
+            admin_notes: adminNotes,
           }),
         });
         const data = await res.json();
@@ -1191,7 +1274,16 @@ const employees = await queryAll<{ id: number; nik: string; name: string; positi
         setTimeout(() => location.reload(), 500);
       } catch (err) {
         alert(err.message);
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = 'Ya, Tutup Sisa Cashbon';
+        }
       }
+    };
+
+    // Backward-compatible alias
+    window.confirmCloseRemaining = function (id, empName, unDisbursed) {
+      window.openCloseRemainingModal(id, empName, unDisbursed);
     };
 
     // Direct Cashbon Modal Handlers
