@@ -3,7 +3,7 @@ import { getCurrentUser } from '../lib/auth';
 
 interface Props {
   title: string;
-  activeNav?: 'home' | 'admin-dashboard' | 'admin-karyawan' | 'admin-presensi' | 'admin-cashbon' | 'admin-payroll' | 'admin-laporan' | 'karyawan-dashboard' | 'karyawan-presensi' | 'karyawan-cashbon' | 'karyawan-payroll';
+  activeNav?: 'home' | 'admin-dashboard' | 'admin-karyawan' | 'admin-presensi' | 'admin-cashbon' | 'admin-payroll' | 'admin-laporan' | 'admin-riwayat' | 'karyawan-dashboard' | 'karyawan-presensi' | 'karyawan-cashbon' | 'karyawan-payroll';
 }
 
 const { title, activeNav = 'home' } = Astro.props;
@@ -106,6 +106,16 @@ const currentUser = await getCurrentUser(Astro.cookies);
                 }`}
               >
                 Laporan
+              </a>
+              <a
+                href="/admin/riwayat"
+                class={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  activeNav === 'admin-riwayat'
+                    ? 'bg-slate-100 text-slate-900 font-semibold'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                }`}
+              >
+                Riwayat Log
               </a>
             </>
           )}
@@ -270,6 +280,16 @@ const currentUser = await getCurrentUser(Astro.cookies);
               }`}
             >
               Laporan
+            </a>
+            <a
+              href="/admin/riwayat"
+              class={`block px-3.5 py-2.5 rounded-xl text-sm font-semibold transition ${
+                activeNav === 'admin-riwayat'
+                  ? 'bg-indigo-50 text-indigo-700'
+                  : 'text-slate-700 hover:bg-slate-50'
+              }`}
+            >
+              Riwayat Log
             </a>
           </>
         )}

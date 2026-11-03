@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro';
 import { getCurrentUser } from '../../../lib/auth';
 import { queryAll, queryOne, execute } from '../../../lib/db';
+import { recordAuditLog } from '../../../lib/audit';
 import type { Employee } from '../../../lib/types';
 
 export const GET: APIRoute = async ({ cookies }) => {
@@ -61,6 +62,14 @@ export const POST: APIRoute = async ({ request, cookies }) => {
 
     if (id) {
       // UPDATE
+      const oldEmp = await queryOne<Employee>('SELECT * FROM employees WHERE id = ?', [id]);
+      if (!oldEmp) {
+        return new Response(JSON.stringify({ error: 'Data karyawan tidak ditemukan' }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
       await execute(
         `UPDATE employees SET 
           nik = ?, name = ?, position = ?, phone = ?,
@@ -81,6 +90,33 @@ export const POST: APIRoute = async ({ request, cookies }) => {
       // Keep user table name in sync
       await execute('UPDATE users SET name = ? WHERE employee_id = ?', [name, id]);
 
+      await recordAuditLog({
+        module: 'karyawan',
+        action: 'update',
+        record_id: Number(id),
+        record_title: `${name} (${nik})`,
+        user_id: user.id,
+        user_name: user.name,
+        old_values: oldEmp,
+        new_values: {
+          id: Number(id),
+          nik,
+          name,
+          position: position || null,
+          phone: phone || '',
+          join_date,
+          scheme,
+          base_rate: cleanBaseRate,
+          payday_rule: payday_rule || '25',
+          bank_name: bank_name || null,
+          bank_account_number: bank_account_number || null,
+          bank_account_holder: bank_account_holder || null,
+          fixed_allowance: cleanAllowance,
+          is_active: is_active !== undefined ? Number(is_active) : 1,
+        },
+        notes: `Pembaruan data karyawan ${name}`,
+      });
+
       return new Response(JSON.stringify({ success: true, message: 'Data karyawan berhasil diperbarui' }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
@@ -95,12 +131,13 @@ export const POST: APIRoute = async ({ request, cookies }) => {
         });
       }
 
+      const joinDateFinal = join_date || new Date().toISOString().split('T')[0];
       const res = await execute(
         `INSERT INTO employees (nik, name, position, phone, join_date, scheme, base_rate, payday_rule, bank_name, bank_account_number, bank_account_holder, fixed_allowance, is_active)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           nik, name, position || null, phone || '',
-          join_date || new Date().toISOString().split('T')[0],
+          joinDateFinal,
           scheme, cleanBaseRate, payday_rule || '25',
           bank_name || null, bank_account_number || null, bank_account_holder || null,
           cleanAllowance, 1
@@ -116,6 +153,33 @@ export const POST: APIRoute = async ({ request, cookies }) => {
          VALUES (?, ?, '123', ?, 'karyawan', ?)`,
         [username, userEmail, name, empId]
       );
+
+      await recordAuditLog({
+        module: 'karyawan',
+        action: 'create',
+        record_id: empId,
+        record_title: `${name} (${nik})`,
+        user_id: user.id,
+        user_name: user.name,
+        old_values: null,
+        new_values: {
+          id: empId,
+          nik,
+          name,
+          position: position || null,
+          phone: phone || '',
+          join_date: joinDateFinal,
+          scheme,
+          base_rate: cleanBaseRate,
+          payday_rule: payday_rule || '25',
+          bank_name: bank_name || null,
+          bank_account_number: bank_account_number || null,
+          bank_account_holder: bank_account_holder || null,
+          fixed_allowance: cleanAllowance,
+          is_active: 1,
+        },
+        notes: `Penambahan karyawan baru ${name}`,
+      });
 
       return new Response(JSON.stringify({ success: true, message: 'Karyawan baru berhasil ditambahkan' }), {
         status: 201,
@@ -151,8 +215,27 @@ export const DELETE: APIRoute = async ({ request, cookies }) => {
   }
 
   try {
+    const emp = await queryOne<Employee>('SELECT * FROM employees WHERE id = ?', [id]);
+    if (!emp) {
+      return new Response(JSON.stringify({ error: 'Karyawan tidak ditemukan' }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
     if (action === 'deactivate') {
       await execute('UPDATE employees SET is_active = 0 WHERE id = ?', [id]);
+      await recordAuditLog({
+        module: 'karyawan',
+        action: 'deactivate',
+        record_id: Number(id),
+        record_title: `${emp.name} (${emp.nik})`,
+        user_id: user.id,
+        user_name: user.name,
+        old_values: { is_active: emp.is_active },
+        new_values: { is_active: 0 },
+        notes: `Status karyawan ${emp.name} dinonaktifkan`,
+      });
       return new Response(JSON.stringify({ success: true, message: 'Karyawan berhasil dinonaktifkan' }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
@@ -161,6 +244,17 @@ export const DELETE: APIRoute = async ({ request, cookies }) => {
 
     if (action === 'activate') {
       await execute('UPDATE employees SET is_active = 1 WHERE id = ?', [id]);
+      await recordAuditLog({
+        module: 'karyawan',
+        action: 'activate',
+        record_id: Number(id),
+        record_title: `${emp.name} (${emp.nik})`,
+        user_id: user.id,
+        user_name: user.name,
+        old_values: { is_active: emp.is_active },
+        new_values: { is_active: 1 },
+        notes: `Status karyawan ${emp.name} diaktifkan kembali`,
+      });
       return new Response(JSON.stringify({ success: true, message: 'Karyawan berhasil diaktifkan kembali' }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
@@ -168,25 +262,29 @@ export const DELETE: APIRoute = async ({ request, cookies }) => {
     }
 
     // Default: permanent delete
-    const emp = await queryOne<Employee>('SELECT name FROM employees WHERE id = ?', [id]);
-    if (!emp) {
-      return new Response(JSON.stringify({ error: 'Karyawan tidak ditemukan' }), {
-        status: 404,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
     await execute('DELETE FROM users WHERE employee_id = ?', [id]);
     await execute('DELETE FROM attendance WHERE employee_id = ?', [id]);
     await execute('DELETE FROM payroll_settlements WHERE employee_id = ?', [id]);
     await execute('DELETE FROM employees WHERE id = ?', [id]);
+
+    await recordAuditLog({
+      module: 'karyawan',
+      action: 'delete',
+      record_id: Number(id),
+      record_title: `${emp.name} (${emp.nik})`,
+      user_id: user.id,
+      user_name: user.name,
+      old_values: emp,
+      new_values: null,
+      notes: `Hapus permanen seluruh data karyawan ${emp.name} (${emp.nik})`,
+    });
 
     return new Response(JSON.stringify({ success: true, message: `Data karyawan ${emp.name} berhasil dihapus permanen` }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     });
   } catch (err: any) {
-    return new Response(JSON.stringify({ error: err.message || 'Gagal menghapus karyawan' }), {
+    return new Response(JSON.stringify({ error: err.message || 'Gagal memproses aksi karyawan' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
     });

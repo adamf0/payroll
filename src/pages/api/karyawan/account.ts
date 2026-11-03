@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro';
 import { getCurrentUser } from '../../../lib/auth';
 import { queryOne, execute } from '../../../lib/db';
+import { recordAuditLog } from '../../../lib/audit';
 import type { Employee, User } from '../../../lib/types';
 
 export const POST: APIRoute = async ({ request, cookies }) => {
@@ -68,7 +69,7 @@ export const POST: APIRoute = async ({ request, cookies }) => {
     }
 
     // Cek apakah akun untuk employee_id ini sudah ada
-    const user = await queryOne<User>('SELECT id FROM users WHERE employee_id = ?', [employee_id]);
+    const user = await queryOne<User>('SELECT id, username, email FROM users WHERE employee_id = ?', [employee_id]);
 
     if (user) {
       // UPDATE akun yang ada
@@ -84,6 +85,18 @@ export const POST: APIRoute = async ({ request, cookies }) => {
         );
       }
 
+      await recordAuditLog({
+        module: 'karyawan',
+        action: 'account_update',
+        record_id: Number(employee_id),
+        record_title: `${employee.name} (@${cleanUsername})`,
+        user_id: admin.id,
+        user_name: admin.name,
+        old_values: { username: user.username, email: user.email },
+        new_values: { username: cleanUsername, email: cleanEmail, password_changed: !!cleanPassword },
+        notes: `Pembaruan akun login karyawan ${employee.name}`,
+      });
+
       return new Response(
         JSON.stringify({
           success: true,
@@ -97,10 +110,22 @@ export const POST: APIRoute = async ({ request, cookies }) => {
     } else {
       // CREATE akun baru
       const pwd = cleanPassword || '123';
-      await execute(
+      const insertRes = await execute(
         'INSERT INTO users (username, email, password, name, role, employee_id) VALUES (?, ?, ?, ?, ?, ?)',
         [cleanUsername, cleanEmail, pwd, employee.name, 'karyawan', employee_id]
       );
+
+      await recordAuditLog({
+        module: 'karyawan',
+        action: 'account_create',
+        record_id: Number(employee_id),
+        record_title: `${employee.name} (@${cleanUsername})`,
+        user_id: admin.id,
+        user_name: admin.name,
+        old_values: null,
+        new_values: { username: cleanUsername, email: cleanEmail },
+        notes: `Pembuatan akun login karyawan baru ${employee.name}`,
+      });
 
       return new Response(
         JSON.stringify({

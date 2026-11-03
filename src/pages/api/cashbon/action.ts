@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro';
 import { getCurrentUser } from '../../../lib/auth';
 import { queryOne, execute } from '../../../lib/db';
+import { recordAuditLog } from '../../../lib/audit';
 import type { CashbonRequest } from '../../../lib/types';
 
 export const POST: APIRoute = async ({ request, cookies }) => {
@@ -31,7 +32,11 @@ export const POST: APIRoute = async ({ request, cookies }) => {
       });
     }
 
+    const emp = await queryOne<{ name: string; nik: string }>('SELECT name, nik FROM employees WHERE id = ?', [cashbon.employee_id]);
+    const empTitle = emp ? `${emp.name} (${emp.nik})` : 'Karyawan';
+
     if (action === 'approve') {
+      const finalNotes = admin_notes || 'Disetujui penuh oleh Admin';
       await execute(
         `UPDATE cashbon_requests SET 
           status = 'approved',
@@ -39,8 +44,29 @@ export const POST: APIRoute = async ({ request, cookies }) => {
           approved_by = ?,
           admin_notes = ?
          WHERE id = ?`,
-        [user.id, admin_notes || 'Disetujui penuh oleh Admin', id]
+        [user.id, finalNotes, id]
       );
+
+      await recordAuditLog({
+        module: 'cashbon',
+        action: 'approve',
+        record_id: Number(id),
+        record_title: `Cashbon #${id} - ${empTitle} (Rp ${Number(cashbon.amount_requested).toLocaleString('id-ID')})`,
+        user_id: user.id,
+        user_name: user.name,
+        old_values: {
+          status: cashbon.status,
+          amount_approved: Number(cashbon.amount_approved),
+          admin_notes: cashbon.admin_notes,
+        },
+        new_values: {
+          status: 'approved',
+          amount_approved: Number(cashbon.amount_requested),
+          admin_notes: finalNotes,
+        },
+        notes: `Persetujuan penuh pengajuan cashbon Rp ${Number(cashbon.amount_requested).toLocaleString('id-ID')}`,
+      });
+
       return new Response(JSON.stringify({ success: true, message: 'Cashbon disetujui penuh' }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
@@ -55,6 +81,7 @@ export const POST: APIRoute = async ({ request, cookies }) => {
           headers: { 'Content-Type': 'application/json' },
         });
       }
+      const finalNotes = admin_notes || 'Disetujui sebagian oleh Admin';
       await execute(
         `UPDATE cashbon_requests SET 
           status = 'partial',
@@ -62,8 +89,29 @@ export const POST: APIRoute = async ({ request, cookies }) => {
           approved_by = ?,
           admin_notes = ?
          WHERE id = ?`,
-        [approved, user.id, admin_notes || 'Disetujui sebagian oleh Admin', id]
+        [approved, user.id, finalNotes, id]
       );
+
+      await recordAuditLog({
+        module: 'cashbon',
+        action: 'partial_approve',
+        record_id: Number(id),
+        record_title: `Cashbon #${id} - ${empTitle} (Rp ${approved.toLocaleString('id-ID')})`,
+        user_id: user.id,
+        user_name: user.name,
+        old_values: {
+          status: cashbon.status,
+          amount_approved: Number(cashbon.amount_approved),
+          admin_notes: cashbon.admin_notes,
+        },
+        new_values: {
+          status: 'partial',
+          amount_approved: approved,
+          admin_notes: finalNotes,
+        },
+        notes: `Persetujuan sebagian cashbon menjadi Rp ${approved.toLocaleString('id-ID')}`,
+      });
+
       return new Response(JSON.stringify({ success: true, message: `Cashbon disetujui sebagian sebesar Rp ${approved.toLocaleString('id-ID')}` }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
@@ -71,6 +119,7 @@ export const POST: APIRoute = async ({ request, cookies }) => {
     }
 
     if (action === 'reject') {
+      const finalNotes = admin_notes || 'Pengajuan tidak disetujui';
       await execute(
         `UPDATE cashbon_requests SET 
           status = 'rejected',
@@ -78,8 +127,29 @@ export const POST: APIRoute = async ({ request, cookies }) => {
           approved_by = ?,
           admin_notes = ?
          WHERE id = ?`,
-        [user.id, admin_notes || 'Pengajuan tidak disetujui', id]
+        [user.id, finalNotes, id]
       );
+
+      await recordAuditLog({
+        module: 'cashbon',
+        action: 'reject',
+        record_id: Number(id),
+        record_title: `Cashbon #${id} - ${empTitle}`,
+        user_id: user.id,
+        user_name: user.name,
+        old_values: {
+          status: cashbon.status,
+          amount_approved: Number(cashbon.amount_approved),
+          admin_notes: cashbon.admin_notes,
+        },
+        new_values: {
+          status: 'rejected',
+          amount_approved: 0,
+          admin_notes: finalNotes,
+        },
+        notes: `Penolakan cashbon: ${finalNotes}`,
+      });
+
       return new Response(JSON.stringify({ success: true, message: 'Pengajuan cashbon ditolak' }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
@@ -93,13 +163,33 @@ export const POST: APIRoute = async ({ request, cookies }) => {
           headers: { 'Content-Type': 'application/json' },
         });
       }
+      const updatedNotes = `${cashbon.admin_notes || ''} [Dana dicairkan]`.trim();
       await execute(
         `UPDATE cashbon_requests SET 
           disbursed_at = NOW(),
-          admin_notes = CONCAT(COALESCE(admin_notes, ''), ' [Dana dicairkan]')
+          admin_notes = ?
          WHERE id = ?`,
-        [id]
+        [updatedNotes, id]
       );
+
+      await recordAuditLog({
+        module: 'cashbon',
+        action: 'disburse',
+        record_id: Number(id),
+        record_title: `Cashbon #${id} - ${empTitle} (Rp ${Number(cashbon.amount_approved).toLocaleString('id-ID')})`,
+        user_id: user.id,
+        user_name: user.name,
+        old_values: {
+          disbursed_at: cashbon.disbursed_at,
+          admin_notes: cashbon.admin_notes,
+        },
+        new_values: {
+          disbursed_at: 'NOW()',
+          admin_notes: updatedNotes,
+        },
+        notes: `Pencairan dana cashbon sebesar Rp ${Number(cashbon.amount_approved).toLocaleString('id-ID')}`,
+      });
+
       return new Response(JSON.stringify({ success: true, message: 'Status cashbon berhasil ditandai telah dicairkan' }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },

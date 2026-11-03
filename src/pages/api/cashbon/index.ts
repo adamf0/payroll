@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro';
 import { getCurrentUser } from '../../../lib/auth';
 import { queryAll, queryOne, execute } from '../../../lib/db';
+import { recordAuditLog } from '../../../lib/audit';
 import type { CashbonRequest } from '../../../lib/types';
 
 export const GET: APIRoute = async ({ request, cookies }) => {
@@ -123,6 +124,8 @@ export const POST: APIRoute = async ({ request, cookies }) => {
       });
     }
 
+    const emp = await queryOne<{ name: string; nik: string }>('SELECT name, nik FROM employees WHERE id = ?', [targetEmpId]);
+
     // If admin enters direct_disburse (quick input cashbon)
     if (user.role === 'admin' && direct_disburse) {
       const res = await execute(
@@ -131,6 +134,29 @@ export const POST: APIRoute = async ({ request, cookies }) => {
          VALUES (?, ?, ?, ?, 'approved', NOW(), 'Input langsung oleh Admin', ?)`,
         [targetEmpId, amount, amount, finalReason, user.id]
       );
+
+      await recordAuditLog({
+        module: 'cashbon',
+        action: 'disburse_direct',
+        record_id: res.insertId,
+        record_title: `Cashbon #${res.insertId} - ${emp?.name || 'Karyawan'} (Rp ${amount.toLocaleString('id-ID')})`,
+        user_id: user.id,
+        user_name: user.name,
+        old_values: null,
+        new_values: {
+          id: res.insertId,
+          employee_id: targetEmpId,
+          employee_name: emp?.name,
+          amount_requested: amount,
+          amount_approved: amount,
+          reason: finalReason,
+          status: 'approved',
+          disbursed_at: 'NOW()',
+          admin_notes: 'Input langsung oleh Admin',
+        },
+        notes: `Input & pencairan cashbon langsung oleh Admin sebesar Rp ${amount.toLocaleString('id-ID')}`,
+      });
+
       return new Response(
         JSON.stringify({ success: true, message: 'Cashbon berhasil dicatat dan dicairkan', id: res.insertId }),
         { status: 201, headers: { 'Content-Type': 'application/json' } }
@@ -144,6 +170,26 @@ export const POST: APIRoute = async ({ request, cookies }) => {
        VALUES (?, ?, 0, ?, 'pending')`,
       [targetEmpId, amount, finalReason]
     );
+
+    await recordAuditLog({
+      module: 'cashbon',
+      action: 'request',
+      record_id: res.insertId,
+      record_title: `Cashbon #${res.insertId} - ${emp?.name || 'Karyawan'} (Rp ${amount.toLocaleString('id-ID')})`,
+      user_id: user.id,
+      user_name: user.name,
+      old_values: null,
+      new_values: {
+        id: res.insertId,
+        employee_id: targetEmpId,
+        employee_name: emp?.name,
+        amount_requested: amount,
+        amount_approved: 0,
+        reason: finalReason,
+        status: 'pending',
+      },
+      notes: `Pengajuan cashbon sebesar Rp ${amount.toLocaleString('id-ID')}`,
+    });
 
     return new Response(
       JSON.stringify({

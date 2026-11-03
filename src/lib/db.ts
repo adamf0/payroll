@@ -151,6 +151,26 @@ async function initMariaDbSchema() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
   `);
 
+  await mysqlPool.query(`
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      module VARCHAR(32) NOT NULL,
+      action VARCHAR(32) NOT NULL,
+      record_id INT NULL,
+      record_title VARCHAR(191) NULL,
+      user_id INT NULL,
+      user_name VARCHAR(191) NOT NULL,
+      old_values LONGTEXT NULL,
+      new_values LONGTEXT NULL,
+      notes TEXT NULL,
+      ip_address VARCHAR(64) NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_audit_module (module),
+      INDEX idx_audit_created (created_at),
+      INDEX idx_audit_record (record_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  `);
+
   try {
     await mysqlPool.query("ALTER TABLE users ADD COLUMN username VARCHAR(64) NULL UNIQUE AFTER id;");
   } catch (err) {}
@@ -787,6 +807,20 @@ async function initSqliteFallback() {
       amount REAL NOT NULL,
       repaid_at TEXT DEFAULT CURRENT_TIMESTAMP,
       notes TEXT NULL
+    );
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      module TEXT NOT NULL,
+      action TEXT NOT NULL,
+      record_id INTEGER NULL,
+      record_title TEXT NULL,
+      user_id INTEGER NULL,
+      user_name TEXT NOT NULL,
+      old_values TEXT NULL,
+      new_values TEXT NULL,
+      notes TEXT NULL,
+      ip_address TEXT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
   `);
 

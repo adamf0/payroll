@@ -133,9 +133,18 @@ const settlements = await queryAll<{
         </p>
       </div>
 
-      <div class="bg-indigo-50 border border-indigo-200 px-4 py-2.5 rounded-2xl text-left sm:text-right">
-        <span class="text-[11px] font-semibold text-indigo-700 block">Total Gaji Belum Dibayar</span>
-        <div class="text-xl font-extrabold text-indigo-900">{formatRupiah(totalAccrued)}</div>
+      <div class="flex items-center gap-2 self-start sm:self-auto">
+        <a
+          href="/admin/riwayat?module=payroll"
+          class="px-3.5 py-2.5 rounded-xl bg-white hover:bg-slate-50 text-slate-700 font-semibold text-xs border border-slate-200 transition shadow-sm flex items-center gap-1.5"
+        >
+          <svg class="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          <span>Riwayat Log</span>
+        </a>
+        <div class="bg-indigo-50 border border-indigo-200 px-4 py-2.5 rounded-2xl text-left sm:text-right">
+          <span class="text-[11px] font-semibold text-indigo-700 block">Total Gaji Belum Dibayar</span>
+          <div class="text-xl font-extrabold text-indigo-900">{formatRupiah(totalAccrued)}</div>
+        </div>
       </div>
     </div>
 
@@ -608,30 +617,40 @@ const settlements = await queryAll<{
                     </td>
                     <td class="py-3 px-4 text-slate-500 whitespace-nowrap">{formatIndonesianDate(s.settled_at)}</td>
                     <td class="py-3 px-4 text-right whitespace-nowrap">
-                      <button
-                        type="button"
-                        onclick={`printSettlementSlip(${JSON.stringify({
-                          id: s.id,
-                          name: s.name,
-                          nik: s.nik,
-                          position: s.position || '-',
-                          period: s.period_start === s.period_end ? s.period_start : `${s.period_start} s/d ${s.period_end}`,
-                          scheme: s.scheme.replace('_', ' '),
-                          units: `${s.total_units} ${s.scheme === 'per_jam' ? 'Jam' : s.scheme === 'harian' ? 'Hari' : s.scheme === 'mingguan' ? 'Minggu' : 'Bulan'}`,
-                          rate: formatRupiah(s.rate),
-                          baseWage: formatRupiah(baseWage),
-                          allowance: formatRupiah(Number(s.allowance) || 0),
-                          overtime: formatRupiah(Number(s.overtime_pay) || 0),
-                          bonus: formatRupiah(Number(s.bonus) || 0),
-                          cashbon: formatRupiah(Number(s.cashbon_deduction) || 0),
-                          totalNet: formatRupiah(s.amount_paid),
-                          date: formatIndonesianDate(s.settled_at),
-                          notes: s.notes || '-'
-                        })})`}
-                        class="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 transition"
-                      >
-                        Cetak Slip
-                      </button>
+                      <div class="inline-flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onclick={`printSettlementSlip(${JSON.stringify({
+                            id: s.id,
+                            name: s.name,
+                            nik: s.nik,
+                            position: s.position || '-',
+                            period: s.period_start === s.period_end ? s.period_start : `${s.period_start} s/d ${s.period_end}`,
+                            scheme: s.scheme.replace('_', ' '),
+                            units: `${s.total_units} ${s.scheme === 'per_jam' ? 'Jam' : s.scheme === 'harian' ? 'Hari' : s.scheme === 'mingguan' ? 'Minggu' : 'Bulan'}`,
+                            rate: formatRupiah(s.rate),
+                            baseWage: formatRupiah(baseWage),
+                            allowance: formatRupiah(Number(s.allowance) || 0),
+                            overtime: formatRupiah(Number(s.overtime_pay) || 0),
+                            bonus: formatRupiah(Number(s.bonus) || 0),
+                            cashbon: formatRupiah(Number(s.cashbon_deduction) || 0),
+                            totalNet: formatRupiah(s.amount_paid),
+                            date: formatIndonesianDate(s.settled_at),
+                            notes: s.notes || '-'
+                          })})`}
+                          class="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 transition cursor-pointer"
+                        >
+                          Cetak Slip
+                        </button>
+                        <button
+                          type="button"
+                          onclick={`voidSettlement(${s.id}, ${JSON.stringify(s.name)})`}
+                          class="px-2 py-1.5 rounded-lg text-xs font-bold bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 transition cursor-pointer"
+                          title="Batalkan pembayaran slip ini & kembalikan potongan cashbon"
+                        >
+                          Batalkan
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -1557,6 +1576,24 @@ const settlements = await queryAll<{
       w.document.close();
       w.focus();
       w.print();
+    window.voidSettlement = async function (id, name) {
+      if (!confirm(`Batalkan pembayaran slip gaji #PAY-${id} untuk ${name}?\n\nPerhatian: Slip gaji akan dihapus dan potongan cashbon (jika ada) akan otomatis dikembalikan ke saldo pinjaman aktif karyawan.`)) {
+        return;
+      }
+      try {
+        const res = await fetch(`/api/payroll/settle?id=${id}`, {
+          method: 'DELETE',
+        });
+        const result = await res.json();
+        if (result.success) {
+          alert(result.message);
+          window.location.reload();
+        } else {
+          alert(result.error || 'Gagal membatalkan slip gaji');
+        }
+      } catch (err) {
+        alert(err.message || 'Terjadi kesalahan sistem saat membatalkan pembayaran');
+      }
     };
 
     applyFilters();

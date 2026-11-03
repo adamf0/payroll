@@ -110,3 +110,18 @@ export interface CashbonRepayment {
   notes?: string | null;
 }
 
+export interface AuditLog {
+  id: number;
+  module: 'karyawan' | 'cashbon' | 'payroll' | 'presensi';
+  action: string;
+  record_id?: number | null;
+  record_title?: string | null;
+  user_id?: number | null;
+  user_name: string;
+  old_values?: any;
+  new_values?: any;
+  notes?: string | null;
+  ip_address?: string | null;
+  created_at: string;
+}
+

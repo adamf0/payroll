@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro';
 import { getCurrentUser } from '../../../lib/auth';
-import { execute, queryAll } from '../../../lib/db';
+import { execute, queryAll, queryOne } from '../../../lib/db';
+import { recordAuditLog } from '../../../lib/audit';
 import { getJakartaTodayStr } from '../../../lib/payroll';
 
 export const POST: APIRoute = async ({ request, cookies }) => {
@@ -118,6 +119,34 @@ export const POST: APIRoute = async ({ request, cookies }) => {
           await applyCashbonRepayment(empId, res.insertId, cashbon);
         }
 
+        const emp = await queryOne<{ name: string; nik: string }>('SELECT name, nik FROM employees WHERE id = ?', [empId]);
+        await recordAuditLog({
+          module: 'payroll',
+          action: 'settle_batch',
+          record_id: res.insertId,
+          record_title: `Slip #PAY-${res.insertId} - ${emp?.name || 'Karyawan'} (${pStart} s/d ${pEnd})`,
+          user_id: user.id,
+          user_name: user.name,
+          old_values: null,
+          new_values: {
+            settlement_id: res.insertId,
+            employee_id: empId,
+            employee_name: emp?.name,
+            period_start: pStart,
+            period_end: pEnd,
+            scheme,
+            total_units: units,
+            rate,
+            amount_paid: netAmount,
+            allowance,
+            overtime_pay: overtime,
+            bonus,
+            cashbon_deduction: cashbon,
+            notes,
+          },
+          notes: `Pembayaran gaji batch karyawan ${emp?.name || ''} sebesar Rp ${netAmount.toLocaleString('id-ID')}`,
+        });
+
         settledCount++;
         totalAmount += netAmount;
       }
@@ -184,6 +213,34 @@ export const POST: APIRoute = async ({ request, cookies }) => {
       await applyCashbonRepayment(Number(employee_id), res.insertId, cbDed);
     }
 
+    const emp = await queryOne<{ name: string; nik: string }>('SELECT name, nik FROM employees WHERE id = ?', [employee_id]);
+    await recordAuditLog({
+      module: 'payroll',
+      action: 'settle',
+      record_id: res.insertId,
+      record_title: `Slip #PAY-${res.insertId} - ${emp?.name || 'Karyawan'} (${periodStart} s/d ${periodEnd})`,
+      user_id: user.id,
+      user_name: user.name,
+      old_values: null,
+      new_values: {
+        settlement_id: res.insertId,
+        employee_id: Number(employee_id),
+        employee_name: emp?.name,
+        period_start: periodStart,
+        period_end: periodEnd,
+        scheme: scheme || 'bulanan',
+        total_units: Number(total_units) || 1,
+        rate: Number(rate) || Number(amount_paid),
+        amount_paid: netAmount,
+        allowance: allw,
+        overtime_pay: ovt,
+        bonus: bns,
+        cashbon_deduction: cbDed,
+        notes: notes || 'Pembayaran realtime via admin portal',
+      },
+      notes: `Pembayaran gaji karyawan ${emp?.name || ''} sebesar Rp ${netAmount.toLocaleString('id-ID')}`,
+    });
+
     return new Response(
       JSON.stringify({
         success: true,
@@ -194,6 +251,87 @@ export const POST: APIRoute = async ({ request, cookies }) => {
     );
   } catch (err: any) {
     return new Response(JSON.stringify({ error: err.message || 'Gagal memproses pembayaran' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+};
+
+export const DELETE: APIRoute = async ({ request, cookies }) => {
+  const user = await getCurrentUser(cookies);
+  if (!user || user.role !== 'admin') {
+    return new Response(JSON.stringify({ error: 'Akses ditolak: Hanya admin' }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  const url = new URL(request.url);
+  const id = url.searchParams.get('id');
+
+  if (!id) {
+    return new Response(JSON.stringify({ error: 'ID settlement diperlukan' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  try {
+    const settlement = await queryOne<any>(
+      `SELECT s.*, e.name, e.nik 
+       FROM payroll_settlements s 
+       JOIN employees e ON s.employee_id = e.id 
+       WHERE s.id = ?`,
+      [id]
+    );
+
+    if (!settlement) {
+      return new Response(JSON.stringify({ error: 'Data pembayaran tidak ditemukan' }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Cek apakah ada cashbon repayments yang terhubung ke settlement ini
+    const repayments = await queryAll<{ id: number; cashbon_id: number; amount: number }>(
+      'SELECT id, cashbon_id, amount FROM cashbon_repayments WHERE settlement_id = ?',
+      [id]
+    );
+
+    for (const rep of repayments) {
+      // Revert status cashbon kembali ke approved jika sebelumnya settled
+      await execute(
+        "UPDATE cashbon_requests SET status = 'approved' WHERE id = ? AND status = 'settled'",
+        [rep.cashbon_id]
+      );
+    }
+
+    // Hapus cashbon_repayments
+    await execute('DELETE FROM cashbon_repayments WHERE settlement_id = ?', [id]);
+    // Hapus settlement
+    await execute('DELETE FROM payroll_settlements WHERE id = ?', [id]);
+
+    await recordAuditLog({
+      module: 'payroll',
+      action: 'void',
+      record_id: Number(id),
+      record_title: `Slip #PAY-${id} - ${settlement.name} (${settlement.nik})`,
+      user_id: user.id,
+      user_name: user.name,
+      old_values: settlement,
+      new_values: null,
+      notes: `Pembatalan slip pembayaran gaji #PAY-${id} (${settlement.name}) sebesar Rp ${Number(settlement.amount_paid).toLocaleString('id-ID')}`,
+    });
+
+    return new Response(
+      JSON.stringify({
+        success: true,
+        message: `Slip gaji #PAY-${id} (${settlement.name}) berhasil dibatalkan dan potongan cashbon telah dipulihkan`,
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } }
+    );
+  } catch (err: any) {
+    return new Response(JSON.stringify({ error: err.message || 'Gagal membatalkan slip gaji' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
     });
