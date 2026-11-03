@@ -206,3 +206,186 @@ export const POST: APIRoute = async ({ request, cookies }) => {
     });
   }
 };
+
+export const PUT: APIRoute = async ({ request, cookies }) => {
+  const user = await getCurrentUser(cookies);
+  if (!user) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  try {
+    const data = await request.json();
+    const id = Number(data.id);
+    if (!id) {
+      return new Response(JSON.stringify({ error: 'ID pengajuan tidak valid' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const rawAmount = data.amount_requested !== undefined && data.amount_requested !== null && data.amount_requested !== ''
+      ? data.amount_requested
+      : data.amount;
+    const amount = Number(rawAmount);
+    if (!amount || isNaN(amount) || amount <= 0) {
+      return new Response(JSON.stringify({ error: 'Nominal cashbon harus lebih besar dari 0' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const reason = (typeof data.reason === 'string' ? data.reason.trim() : '');
+    if (!reason) {
+      return new Response(JSON.stringify({ error: 'Mohon cantumkan alasan pengajuan cashbon' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const existing = await queryOne<any>(
+      `SELECT c.*, e.name AS employee_name 
+       FROM cashbon_requests c 
+       JOIN employees e ON c.employee_id = e.id 
+       WHERE c.id = ?`,
+      [id]
+    );
+
+    if (!existing) {
+      return new Response(JSON.stringify({ error: 'Pengajuan cashbon tidak ditemukan' }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (user.role === 'karyawan' && existing.employee_id !== user.employee_id) {
+      return new Response(JSON.stringify({ error: 'Anda tidak memiliki hak untuk mengubah pengajuan ini' }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (existing.status !== 'pending') {
+      return new Response(JSON.stringify({ error: 'Pengajuan hanya dapat diubah ketika status masih Menunggu Review Admin' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    await execute(
+      'UPDATE cashbon_requests SET amount_requested = ?, reason = ? WHERE id = ?',
+      [amount, reason, id]
+    );
+
+    await recordAuditLog({
+      module: 'cashbon',
+      action: 'update_request',
+      record_id: id,
+      record_title: `Cashbon #${id} - ${existing.employee_name} (Rp ${amount.toLocaleString('id-ID')})`,
+      user_id: user.id,
+      user_name: user.name,
+      old_values: {
+        amount_requested: existing.amount_requested,
+        reason: existing.reason,
+      },
+      new_values: {
+        amount_requested: amount,
+        reason: reason,
+      },
+      notes: `Perubahan pengajuan cashbon dari Rp ${Number(existing.amount_requested).toLocaleString('id-ID')} menjadi Rp ${amount.toLocaleString('id-ID')}`,
+    });
+
+    return new Response(JSON.stringify({ success: true, message: 'Pengajuan cashbon berhasil diubah' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  } catch (err: any) {
+    return new Response(JSON.stringify({ error: err.message || 'Gagal mengubah pengajuan cashbon' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+};
+
+export const DELETE: APIRoute = async ({ request, cookies }) => {
+  const user = await getCurrentUser(cookies);
+  if (!user) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  try {
+    const url = new URL(request.url);
+    const idParam = url.searchParams.get('id');
+    const id = Number(idParam);
+    if (!id) {
+      return new Response(JSON.stringify({ error: 'ID pengajuan tidak valid' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const existing = await queryOne<any>(
+      `SELECT c.*, e.name AS employee_name 
+       FROM cashbon_requests c 
+       JOIN employees e ON c.employee_id = e.id 
+       WHERE c.id = ?`,
+      [id]
+    );
+
+    if (!existing) {
+      return new Response(JSON.stringify({ error: 'Pengajuan cashbon tidak ditemukan' }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (user.role === 'karyawan' && existing.employee_id !== user.employee_id) {
+      return new Response(JSON.stringify({ error: 'Anda tidak memiliki hak untuk menghapus pengajuan ini' }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (existing.status !== 'pending') {
+      return new Response(JSON.stringify({ error: 'Pengajuan hanya dapat dihapus ketika status masih Menunggu Review Admin' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    await execute('DELETE FROM cashbon_requests WHERE id = ?', [id]);
+
+    await recordAuditLog({
+      module: 'cashbon',
+      action: 'delete_request',
+      record_id: id,
+      record_title: `Cashbon #${id} - ${existing.employee_name} (Rp ${Number(existing.amount_requested).toLocaleString('id-ID')})`,
+      user_id: user.id,
+      user_name: user.name,
+      old_values: {
+        id: existing.id,
+        employee_id: existing.employee_id,
+        amount_requested: existing.amount_requested,
+        reason: existing.reason,
+        status: existing.status,
+      },
+      new_values: null,
+      notes: `Pengajuan cashbon dibatalkan & dihapus oleh ${user.name}`,
+    });
+
+    return new Response(JSON.stringify({ success: true, message: 'Pengajuan cashbon berhasil dibatalkan dan dihapus' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  } catch (err: any) {
+    return new Response(JSON.stringify({ error: err.message || 'Gagal menghapus pengajuan cashbon' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+};
