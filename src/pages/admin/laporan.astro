@@ -19,20 +19,52 @@ const selectedYear = url.searchParams.get('year') || currentYear;
 const selectedMonth = url.searchParams.get('month') || currentMonth;
 const selectedEmpId = url.searchParams.get('emp') || '';
 
-const monthPattern = `${selectedYear}-${selectedMonth}%`;
-
 // Query settlements matching filter
 let settlementSql = `
   SELECT s.*, e.name, e.nik, e.position
   FROM payroll_settlements s
   JOIN employees e ON s.employee_id = e.id
-  WHERE (s.settled_at LIKE ? OR s.period_end LIKE ?)
+  WHERE 1=1
 `;
-const settlementParams: any[] = [monthPattern, monthPattern];
+const settlementParams: any[] = [];
+
+// Query cashbon disbursed matching filter
+let cashbonSql = `
+  SELECT c.*, e.name, e.nik
+  FROM cashbon_requests c
+  JOIN employees e ON c.employee_id = e.id
+  WHERE c.disbursed_at IS NOT NULL
+`;
+const cashbonParams: any[] = [];
+
+if (selectedYear !== 'all' && selectedMonth !== 'all') {
+  const monthPattern = `${selectedYear}-${selectedMonth}%`;
+  settlementSql += ` AND (s.settled_at LIKE ? OR s.period_end LIKE ?)`;
+  settlementParams.push(monthPattern, monthPattern);
+
+  cashbonSql += ` AND c.disbursed_at LIKE ?`;
+  cashbonParams.push(monthPattern);
+} else if (selectedYear !== 'all' && selectedMonth === 'all') {
+  const yearPattern = `${selectedYear}%`;
+  settlementSql += ` AND (s.settled_at LIKE ? OR s.period_end LIKE ?)`;
+  settlementParams.push(yearPattern, yearPattern);
+
+  cashbonSql += ` AND c.disbursed_at LIKE ?`;
+  cashbonParams.push(yearPattern);
+} else if (selectedYear === 'all' && selectedMonth !== 'all') {
+  settlementSql += ` AND (DATE_FORMAT(s.settled_at, '%m') = ? OR DATE_FORMAT(s.period_end, '%m') = ?)`;
+  settlementParams.push(selectedMonth, selectedMonth);
+
+  cashbonSql += ` AND DATE_FORMAT(c.disbursed_at, '%m') = ?`;
+  cashbonParams.push(selectedMonth);
+}
 
 if (selectedEmpId) {
   settlementSql += ` AND s.employee_id = ?`;
   settlementParams.push(Number(selectedEmpId));
+
+  cashbonSql += ` AND c.employee_id = ?`;
+  cashbonParams.push(Number(selectedEmpId));
 }
 
 settlementSql += ` ORDER BY s.settled_at DESC`;
@@ -56,13 +88,6 @@ const settlements = await queryAll<{
   notes: string | null;
 }>(settlementSql, settlementParams);
 
-// Query cashbon disbursed in this month
-let cashbonSql = `
-  SELECT c.*, e.name, e.nik
-  FROM cashbon_requests c
-  JOIN employees e ON c.employee_id = e.id
-  WHERE c.disbursed_at LIKE ?
-`;
 const cashbonDisbursed = await queryAll<{
   id: number;
   employee_id: number;
@@ -70,7 +95,7 @@ const cashbonDisbursed = await queryAll<{
   disbursed_at: string;
   name: string;
   nik: string;
-}>(cashbonSql, [monthPattern]);
+}>(cashbonSql, cashbonParams);
 
 // Financial Aggregates
 const totalBaseWage = settlements.reduce((sum, s) => sum + (Number(s.rate) * Number(s.total_units) || Number(s.amount_paid)), 0);
@@ -87,6 +112,7 @@ const employees = await queryAll<{ id: number; name: string; nik: string }>(
 );
 
 const monthsList = [
+  { val: 'all', label: 'Semua Bulan' },
   { val: '01', label: 'Januari' },
   { val: '02', label: 'Februari' },
   { val: '03', label: 'Maret' },
@@ -101,7 +127,22 @@ const monthsList = [
   { val: '12', label: 'Desember' },
 ];
 
-const selectedMonthName = monthsList.find((m) => m.val === selectedMonth)?.label || selectedMonth;
+const currentYearNum = parseInt(currentYear, 10);
+const yearsList = [currentYearNum - 1, currentYearNum, currentYearNum + 1];
+
+const selectedMonthName = monthsList.find((m) => m.val === selectedMonth)?.label || (selectedMonth === 'all' ? 'Semua Bulan' : selectedMonth);
+
+let selectedPeriodTitle = '';
+if (selectedMonth === 'all' && selectedYear === 'all') {
+  selectedPeriodTitle = 'Semua Periode';
+} else if (selectedMonth === 'all') {
+  selectedPeriodTitle = `Semua Bulan ${selectedYear}`;
+} else if (selectedYear === 'all') {
+  selectedPeriodTitle = `${selectedMonthName} (Semua Tahun)`;
+} else {
+  selectedPeriodTitle = `${selectedMonthName} ${selectedYear}`;
+}
+
 const selectedEmployee = employees.find((e) => e.id.toString() === selectedEmpId);
 ---
 
@@ -159,9 +200,12 @@ const selectedEmployee = employees.find((e) => e.id.toString() === selectedEmpId
             name="year"
             class="px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
           >
-            <option value="2025" selected={selectedYear === '2025'}>2025</option>
-            <option value="2026" selected={selectedYear === '2026'}>2026</option>
-            <option value="2027" selected={selectedYear === '2027'}>2027</option>
+            <option value="all" selected={selectedYear === 'all'}>Semua Tahun</option>
+            {yearsList.map((y) => (
+              <option value={y.toString()} selected={selectedYear === y.toString()}>
+                {y}
+              </option>
+            ))}
           </select>
         </div>
 
@@ -232,7 +276,7 @@ const selectedEmployee = employees.find((e) => e.id.toString() === selectedEmpId
             Laporan Rekapitulasi Penggajian & Keuangan Karyawan
           </h1>
           <p class="text-xs text-slate-700 mt-0.5 font-medium">
-            Periode: <strong>{selectedMonthName} {selectedYear}</strong>
+            Periode: <strong>{selectedPeriodTitle}</strong>
             {selectedEmployee ? <span> • Karyawan: <strong>{selectedEmployee.name} ({selectedEmployee.nik})</strong></span> : ' • Seluruh Karyawan'}
             <span> • Total Transaksi: <strong>{settlements.length} Data</strong></span>
           </p>
@@ -248,7 +292,7 @@ const selectedEmployee = employees.find((e) => e.id.toString() === selectedEmpId
     <div id="printTableContainer" class="bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden print:border-none print:shadow-none print:rounded-none print:m-0 print:p-0 print:overflow-visible">
       <div class="p-4 border-b border-slate-100 flex items-center justify-between print:hidden">
         <h2 class="text-sm font-bold text-slate-900">
-          Rincian Penggajian Periode: {selectedMonthName} {selectedYear}
+          Rincian Penggajian Periode: {selectedPeriodTitle}
         </h2>
         <span class="text-xs text-slate-400">{settlements.length} Data Ditemukan</span>
       </div>
@@ -273,7 +317,7 @@ const selectedEmployee = employees.find((e) => e.id.toString() === selectedEmpId
             {settlements.length === 0 ? (
               <tr>
                 <td colspan="10" class="text-center py-10 text-slate-400">
-                  Tidak ada data penggajian pada periode {selectedMonthName} {selectedYear}.
+                  Tidak ada data penggajian pada periode {selectedPeriodTitle}.
                 </td>
               </tr>
             ) : (
@@ -338,7 +382,7 @@ const selectedEmployee = employees.find((e) => e.id.toString() === selectedEmpId
 
   <script is:inline src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 
-  <script is:inline define:vars={{ settlements, selectedMonthName, selectedYear, totalNetPaid, totalBaseWage, totalCashbonDeducted, totalAllowance, totalOvertime, totalBonus }}>
+  <script is:inline define:vars={{ settlements, selectedPeriodTitle, totalNetPaid, totalBaseWage, totalCashbonDeducted, totalAllowance, totalOvertime, totalBonus }}>
     async function getXLSX() {
       if (window.XLSX) return window.XLSX;
       return new Promise((resolve, reject) => {
@@ -446,7 +490,8 @@ const selectedEmployee = employees.find((e) => e.id.toString() === selectedEmpId
 
         const workbook = XLSXLib.utils.book_new();
         XLSXLib.utils.book_append_sheet(workbook, worksheet, 'Laporan Payroll');
-        XLSXLib.writeFile(workbook, `Laporan_Gaji_${selectedMonthName}_${selectedYear}.xlsx`);
+        const fileName = `Laporan_Gaji_${selectedPeriodTitle.replace(/[\s\(\)\/]/g, '_')}.xlsx`;
+        XLSXLib.writeFile(workbook, fileName);
       } catch (err) {
         alert(err.message || 'Gagal mengekspor file Excel');
       }
