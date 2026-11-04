@@ -261,10 +261,23 @@ export async function getSettledPayrollInPeriod(
   employeeId: number,
   startDate: string,
   endDate: string
-): Promise<{ totalSettled: number; settlementCount: number }> {
-  const row = await queryOne<{ total_settled: number; settlement_count: number }>(
+): Promise<{
+  totalSettled: number;
+  totalGross: number;
+  totalCashbon: number;
+  totalNet: number;
+  settlementCount: number;
+}> {
+  const row = await queryOne<{
+    total_gross: number;
+    total_cashbon: number;
+    total_net: number;
+    settlement_count: number;
+  }>(
     `SELECT 
-       COALESCE(SUM(amount_paid), 0) AS total_settled,
+       COALESCE(SUM(total_units * rate + allowance + overtime_pay + bonus), 0) AS total_gross,
+       COALESCE(SUM(cashbon_deduction), 0) AS total_cashbon,
+       COALESCE(SUM(amount_paid), 0) AS total_net,
        COUNT(*) AS settlement_count
      FROM payroll_settlements
      WHERE employee_id = ?
@@ -273,8 +286,15 @@ export async function getSettledPayrollInPeriod(
     [employeeId, startDate, endDate]
   );
 
+  const totalGross = Number(row?.total_gross) || 0;
+  const totalCashbon = Number(row?.total_cashbon) || 0;
+  const totalNet = Number(row?.total_net) || 0;
+
   return {
-    totalSettled: Number(row?.total_settled) || 0,
+    totalSettled: totalNet,
+    totalGross,
+    totalCashbon,
+    totalNet,
     settlementCount: Number(row?.settlement_count) || 0,
   };
 }

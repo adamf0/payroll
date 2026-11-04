@@ -184,8 +184,20 @@ const totalUnpaidCashbon = activeCashbons.reduce((sum, c) => sum + c.remaining_b
             </div>
             <div class="flex items-center justify-between">
               <span class="text-slate-500">Gaji Sudah Cair</span>
-              <span class={`font-bold ${settledInfo.totalSettled > 0 ? 'text-emerald-600' : 'text-slate-600'}`}>
-                {formatRupiah(settledInfo.totalSettled)}
+              <span class={`font-bold ${settledInfo.totalGross > 0 ? 'text-slate-900' : 'text-slate-600'}`}>
+                {formatRupiah(settledInfo.totalGross)}
+              </span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-slate-500">Potongan Cashbon</span>
+              <span class={`font-bold ${settledInfo.totalCashbon > 0 ? 'text-rose-600' : 'text-slate-600'}`}>
+                {settledInfo.totalCashbon > 0 ? `-${formatRupiah(settledInfo.totalCashbon)}` : formatRupiah(0)}
+              </span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-slate-500">Gaji Bersih</span>
+              <span class={`font-bold ${settledInfo.totalNet > 0 ? 'text-emerald-600' : 'text-slate-600'}`}>
+                {formatRupiah(settledInfo.totalNet)}
               </span>
             </div>
             <div class="flex items-center justify-between pt-1.5 border-t border-slate-200/60">

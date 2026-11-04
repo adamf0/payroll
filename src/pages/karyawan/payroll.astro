@@ -194,8 +194,22 @@ const yearsList = [currentYear - 1, currentYear, currentYear + 1];
           <div class="flex flex-wrap items-baseline gap-6 mt-2">
             <div>
               <span class="text-[11px] text-slate-400 block mb-0.5">Gaji Sudah Cair</span>
-              <div id="gaji-settled-amount" class={`text-2xl sm:text-3xl font-extrabold ${settledInfo.totalSettled > 0 ? 'text-emerald-600' : 'text-slate-700'}`}>
-                {formatRupiah(settledInfo.totalSettled)}
+              <div id="gaji-settled-amount" class={`text-2xl sm:text-3xl font-extrabold ${settledInfo.totalGross > 0 ? 'text-slate-900' : 'text-slate-700'}`}>
+                {formatRupiah(settledInfo.totalGross)}
+              </div>
+            </div>
+
+            <div class="border-l border-slate-200 pl-6">
+              <span class="text-[11px] text-slate-400 block mb-0.5">Potongan Cashbon</span>
+              <div id="gaji-cashbon-amount" class={`text-2xl sm:text-3xl font-extrabold ${settledInfo.totalCashbon > 0 ? 'text-rose-600' : 'text-slate-400'}`}>
+                {settledInfo.totalCashbon > 0 ? `-${formatRupiah(settledInfo.totalCashbon)}` : formatRupiah(0)}
+              </div>
+            </div>
+
+            <div class="border-l border-slate-200 pl-6">
+              <span class="text-[11px] text-slate-400 block mb-0.5">Gaji Bersih</span>
+              <div id="gaji-net-amount" class={`text-2xl sm:text-3xl font-extrabold ${settledInfo.totalNet > 0 ? 'text-emerald-600' : 'text-slate-700'}`}>
+                {formatRupiah(settledInfo.totalNet)}
               </div>
             </div>
 
@@ -258,8 +272,8 @@ const yearsList = [currentYear - 1, currentYear, currentYear + 1];
           <div id="gaji-settled-count" class="text-sm font-bold text-slate-900">
             {settledInfo.settlementCount > 0 ? `${settledInfo.settlementCount} Slip Dicairkan` : 'Belum Ada'}
           </div>
-          <span class="text-[10px] text-slate-400 block mt-0.5">
-            Total {formatRupiah(settledInfo.totalSettled)}
+          <span id="gaji-settled-sublabel" class="text-[10px] text-slate-400 block mt-0.5">
+            Bersih {formatRupiah(settledInfo.totalNet)}
           </span>
         </div>
 
@@ -918,15 +932,32 @@ const yearsList = [currentYear - 1, currentYear, currentYear + 1];
       const netEl = document.getElementById('summary-net-val');
       if (netEl) netEl.textContent = formatRupiahJS(totalNet);
 
-      const settledAmountEl = document.getElementById('gaji-settled-amount');
-      if (settledAmountEl) {
-        settledAmountEl.textContent = formatRupiahJS(totalNet);
-        settledAmountEl.className = `text-2xl sm:text-3xl font-extrabold ${totalNet > 0 ? 'text-emerald-600' : 'text-slate-700'}`;
+      const settledGrossEl = document.getElementById('gaji-settled-amount');
+      if (settledGrossEl) {
+        settledGrossEl.textContent = formatRupiahJS(totalGross);
+        settledGrossEl.className = `text-2xl sm:text-3xl font-extrabold ${totalGross > 0 ? 'text-slate-900' : 'text-slate-700'}`;
+      }
+
+      const settledCashbonEl = document.getElementById('gaji-cashbon-amount');
+      if (settledCashbonEl) {
+        settledCashbonEl.textContent = totalCashbon > 0 ? `-${formatRupiahJS(totalCashbon)}` : formatRupiahJS(0);
+        settledCashbonEl.className = `text-2xl sm:text-3xl font-extrabold ${totalCashbon > 0 ? 'text-rose-600' : 'text-slate-400'}`;
+      }
+
+      const settledNetEl = document.getElementById('gaji-net-amount');
+      if (settledNetEl) {
+        settledNetEl.textContent = formatRupiahJS(totalNet);
+        settledNetEl.className = `text-2xl sm:text-3xl font-extrabold ${totalNet > 0 ? 'text-emerald-600' : 'text-slate-700'}`;
       }
 
       const settledCountEl = document.getElementById('gaji-settled-count');
       if (settledCountEl) {
         settledCountEl.textContent = visibleCount > 0 ? `${visibleCount} Slip Dicairkan` : 'Belum Ada';
+      }
+
+      const settledSublabelEl = document.getElementById('gaji-settled-sublabel');
+      if (settledSublabelEl) {
+        settledSublabelEl.textContent = `Bersih ${formatRupiahJS(totalNet)}`;
       }
 
       const emptyFilteredEl = document.getElementById('no-slips-filtered-row');
