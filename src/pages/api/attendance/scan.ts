@@ -4,6 +4,7 @@ import { getCurrentUser } from '../../../lib/auth';
 import { queryOne, execute } from '../../../lib/db';
 import type { Employee, AttendanceRecord } from '../../../lib/types';
 import { getJakartaNow } from '../../../lib/payroll';
+import { recordAuditLog } from '../../../lib/audit';
 
 export const POST: APIRoute = async ({ request, cookies }) => {
   try {
@@ -80,6 +81,8 @@ export const POST: APIRoute = async ({ request, cookies }) => {
       [employee.id, dateStr]
     );
 
+    const clientIp = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || '';
+
     if (!todayRecord) {
       // CHECK IN
       const isLate = hour > 8 || (hour === 8 && minute > 30);
@@ -90,6 +93,23 @@ export const POST: APIRoute = async ({ request, cookies }) => {
          VALUES (?, ?, ?, NULL, 0, ?, ?)`,
         [employee.id, dateStr, timeStr, status, token]
       );
+
+      await recordAuditLog({
+        module: 'presensi',
+        action: 'check_in',
+        record_id: employee.id,
+        record_title: `${employee.name} (${employee.nik})`,
+        user_id: sessionUser?.id || null,
+        user_name: sessionUser?.name || employee.name,
+        new_values: {
+          date: dateStr,
+          check_in: timeStr,
+          status: status === 'hadir' ? 'Tepat Waktu' : 'Terlambat',
+          employee_name: employee.name,
+        },
+        notes: `Presensi Masuk dicatat pukul ${timeStr} WIB (${status === 'hadir' ? 'Tepat Waktu' : 'Terlambat'})`,
+        ip_address: clientIp,
+      });
 
       return new Response(
         JSON.stringify({
@@ -116,6 +136,30 @@ export const POST: APIRoute = async ({ request, cookies }) => {
         `UPDATE attendance SET check_out = ?, duration_minutes = ? WHERE id = ?`,
         [timeStr, durationMin, todayRecord.id]
       );
+
+      await recordAuditLog({
+        module: 'presensi',
+        action: 'check_out',
+        record_id: employee.id,
+        record_title: `${employee.name} (${employee.nik})`,
+        user_id: sessionUser?.id || null,
+        user_name: sessionUser?.name || employee.name,
+        old_values: {
+          date: dateStr,
+          check_in: todayRecord.check_in,
+          status: todayRecord.status === 'hadir' ? 'Tepat Waktu' : 'Terlambat',
+        },
+        new_values: {
+          date: dateStr,
+          check_in: todayRecord.check_in,
+          check_out: timeStr,
+          duration_hours: `${durationHours} jam`,
+          duration_minutes: durationMin,
+          status: todayRecord.status === 'hadir' ? 'Tepat Waktu' : 'Terlambat',
+        },
+        notes: `Presensi Pulang dicatat pukul ${timeStr} WIB. Total durasi kerja: ${durationHours} jam (${durationMin} menit)`,
+        ip_address: clientIp,
+      });
 
       return new Response(
         JSON.stringify({

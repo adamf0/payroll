@@ -44,12 +44,14 @@ const countsRow = await queryAll<{
   karyawan_count: number;
   cashbon_count: number;
   payroll_count: number;
+  presensi_count: number;
 }>(`
   SELECT 
     COUNT(*) AS total_count,
     SUM(CASE WHEN module = 'karyawan' THEN 1 ELSE 0 END) AS karyawan_count,
     SUM(CASE WHEN module = 'cashbon' THEN 1 ELSE 0 END) AS cashbon_count,
-    SUM(CASE WHEN module = 'payroll' THEN 1 ELSE 0 END) AS payroll_count
+    SUM(CASE WHEN module = 'payroll' THEN 1 ELSE 0 END) AS payroll_count,
+    SUM(CASE WHEN module = 'presensi' THEN 1 ELSE 0 END) AS presensi_count
   FROM audit_logs
 `);
 
@@ -58,6 +60,7 @@ const metrics = countsRow[0] || {
   karyawan_count: 0,
   cashbon_count: 0,
   payroll_count: 0,
+  presensi_count: 0,
 };
 
 function formatActionBadge(action: string) {
@@ -92,6 +95,10 @@ function formatActionBadge(action: string) {
       return { label: 'Pembayaran Gaji', bg: 'bg-indigo-50 text-indigo-700 border-indigo-200' };
     case 'void':
       return { label: 'Pembatalan Slip Gaji', bg: 'bg-rose-50 text-rose-700 border-rose-200' };
+    case 'check_in':
+      return { label: 'Absensi Masuk', bg: 'bg-emerald-50 text-emerald-700 border-emerald-200' };
+    case 'check_out':
+      return { label: 'Absensi Keluar', bg: 'bg-teal-50 text-teal-700 border-teal-200' };
     default:
       return { label: action.replace('_', ' ').toUpperCase(), bg: 'bg-slate-50 text-slate-700 border-slate-200' };
   }
@@ -105,6 +112,8 @@ function formatModuleBadge(module: string) {
       return { label: 'Cashbon', bg: 'bg-purple-50 text-purple-700 border-purple-200', icon: 'M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z' };
     case 'payroll':
       return { label: 'Kelola Gaji', bg: 'bg-indigo-50 text-indigo-700 border-indigo-200', icon: 'M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z' };
+    case 'presensi':
+      return { label: 'Presensi', bg: 'bg-emerald-50 text-emerald-700 border-emerald-200', icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z' };
     default:
       return { label: module, bg: 'bg-slate-100 text-slate-700 border-slate-200', icon: 'M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z' };
   }
@@ -141,7 +150,7 @@ function formatModuleBadge(module: string) {
     </div>
 
     <!-- Summary Metrics Cards -->
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4 mb-6">
       <div class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm">
         <span class="text-xs font-medium text-slate-500 block">Total Aktivitas</span>
         <div class="text-2xl font-extrabold text-slate-900 mt-1">{metrics.total_count}</div>
@@ -164,6 +173,12 @@ function formatModuleBadge(module: string) {
         <span class="text-xs font-semibold text-indigo-800 block">Log Kelola Gaji</span>
         <div class="text-2xl font-extrabold text-indigo-900 mt-1">{metrics.payroll_count}</div>
         <span class="text-[11px] text-indigo-700 mt-0.5 block">Pembayaran slip & pembatalan void</span>
+      </div>
+
+      <div class="bg-emerald-50/60 p-4 rounded-2xl border border-emerald-200/80 shadow-sm col-span-2 sm:col-span-1">
+        <span class="text-xs font-semibold text-emerald-800 block">Log Presensi</span>
+        <div class="text-2xl font-extrabold text-emerald-900 mt-1">{metrics.presensi_count}</div>
+        <span class="text-[11px] text-emerald-700 mt-0.5 block">Absensi masuk & keluar</span>
       </div>
     </div>
 
@@ -204,6 +219,14 @@ function formatModuleBadge(module: string) {
           >
             Kelola Gaji
           </a>
+          <a
+            href={`/admin/riwayat?module=presensi${searchQuery ? `&q=${encodeURIComponent(searchQuery)}` : ''}`}
+            class={`px-3 py-1.5 rounded-lg transition ${
+              selectedModule === 'presensi' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            Presensi
+          </a>
         </div>
 
         <input type="hidden" name="module" value={selectedModule} />
@@ -229,6 +252,8 @@ function formatModuleBadge(module: string) {
             <option value="settle" selected={selectedAction === 'settle'}>Pembayaran Gaji</option>
             <option value="settle_batch" selected={selectedAction === 'settle_batch'}>Pembayaran Gaji Batch</option>
             <option value="void" selected={selectedAction === 'void'}>Pembatalan / Void Slip Gaji</option>
+            <option value="check_in" selected={selectedAction === 'check_in'}>Absensi Masuk</option>
+            <option value="check_out" selected={selectedAction === 'check_out'}>Absensi Pulang / Keluar</option>
           </select>
         </div>
 
@@ -510,6 +535,8 @@ function formatModuleBadge(module: string) {
       check_in: 'Jam Masuk',
       check_out: 'Jam Pulang',
       work_hours: 'Durasi Kerja',
+      duration_minutes: 'Durasi (Menit)',
+      duration_hours: 'Durasi Kerja',
       penalty_late: 'Potongan Terlambat',
       role: 'Hak Akses',
       username: 'Nama Akun (Username)',
@@ -535,6 +562,8 @@ function formatModuleBadge(module: string) {
           settled: 'Lunas Terpotong Gaji',
           active: 'Aktif',
           inactive: 'Nonaktif',
+          hadir: 'Tepat Waktu',
+          terlambat: 'Terlambat',
         };
         const s = String(v).toLowerCase();
         if (statusMap[s]) {
@@ -609,12 +638,15 @@ function formatModuleBadge(module: string) {
             settle: { label: 'Pembayaran Gaji', bg: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
             settle_batch: { label: 'Pembayaran Gaji Massal', bg: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
             void: { label: 'Pembatalan Slip Gaji', bg: 'bg-rose-50 text-rose-700 border-rose-200' },
+            check_in: { label: 'Absensi Masuk', bg: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+            check_out: { label: 'Absensi Keluar', bg: 'bg-teal-50 text-teal-700 border-teal-200' },
           };
 
           const moduleMap = {
             karyawan: { label: 'Karyawan', bg: 'bg-sky-50 text-sky-700 border-sky-200' },
             cashbon: { label: 'Cashbon', bg: 'bg-purple-50 text-purple-700 border-purple-200' },
             payroll: { label: 'Kelola Gaji', bg: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
+            presensi: { label: 'Presensi', bg: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
           };
 
           const actInfo = actionMap[log.action] || {
