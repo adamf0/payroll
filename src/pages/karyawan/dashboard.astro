@@ -161,11 +161,6 @@ const totalUnpaidCashbon = activeCashbons.reduce((sum, c) => sum + c.remaining_b
           </div>
           <div class="text-2xl font-extrabold text-indigo-600">{payrollInfo.currency_formatted}</div>
           <p class="text-xs text-slate-500 mt-1">Terkumpul periode ini</p>
-          {totalUnpaidCashbon > 0 && (
-            <p class="text-[11px] text-rose-600 font-semibold mt-1">
-              Potongan cashbon: -{formatRupiah(Math.min(payrollInfo.raw_amount, totalUnpaidCashbon))}
-            </p>
-          )}
         </div>
         <div class="mt-4 pt-3 border-t border-slate-100">
           <a href="/karyawan/payroll" class="text-xs font-semibold text-indigo-600 hover:text-indigo-800">
@@ -190,113 +185,21 @@ const totalUnpaidCashbon = activeCashbons.reduce((sum, c) => sum + c.remaining_b
     </div>
 
     <!-- Section Cashbon Belum Terpotong Gaji -->
-    <div class="bg-white rounded-3xl border border-slate-200/80 shadow-sm p-5 sm:p-6 mb-8">
-      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5 pb-4 border-b border-slate-100">
-        <div>
-          <div class="flex items-center gap-2">
-            <h2 class="text-base font-bold text-slate-900">Cashbon Belum Terpotong Gaji</h2>
-            {totalUnpaidCashbon > 0 ? (
-              <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
-                {activeCashbons.length} Pinjaman Aktif
-              </span>
-            ) : (
-              <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                Bebas Pinjaman
-              </span>
-            )}
-          </div>
-          <p class="text-xs text-slate-500 mt-0.5">
-            Daftar dana cashbon yang telah cair ke Anda dan akan dipotong otomatis saat penggajian berikutnya
-          </p>
-        </div>
-
-        <div class="flex items-center gap-3">
-          {totalUnpaidCashbon > 0 && (
-            <div class="text-left sm:text-right">
-              <span class="text-[10px] text-slate-400 block font-medium">Total Belum Dipotong</span>
-              <span class="text-lg font-black text-rose-600 block leading-tight">{formatRupiah(totalUnpaidCashbon)}</span>
-            </div>
-          )}
-          <a
-            href="/karyawan/cashbon"
-            class="px-3.5 py-2 rounded-xl text-xs font-semibold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 transition"
-          >
-            Kelola Cashbon &rarr;
-          </a>
+    <div class="bg-white rounded-3xl border border-slate-200/80 shadow-sm p-5 sm:p-6 mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div>
+        <h2 class="text-xs sm:text-sm font-semibold text-slate-500 mb-1">Cashbon Belum Terpotong Gaji</h2>
+        <div class={`text-2xl sm:text-3xl font-black ${totalUnpaidCashbon > 0 ? 'text-rose-600' : 'text-slate-800'}`}>
+          {formatRupiah(totalUnpaidCashbon)}
         </div>
       </div>
-
-      {activeCashbons.length > 0 ? (
-        <div class="space-y-3">
-          {activeCashbons.map((cb) => (
-            <div class="p-4 rounded-2xl bg-slate-50/70 border border-slate-200/80 hover:bg-slate-50 transition">
-              <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
-                <div class="flex items-center gap-2">
-                  <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
-                    Uang Cair
-                  </span>
-                  <span class="text-xs text-slate-400 font-mono">
-                    Cair: {formatIndonesianDate(cb.disbursed_at.slice(0, 10))}
-                  </span>
-                </div>
-                <div class="text-xs">
-                  <span class="text-slate-500">Alasan:</span>
-                  <span class="font-semibold text-slate-800 ml-1">{cb.reason || '-'}</span>
-                </div>
-              </div>
-
-              <!-- 3 Kolom Rincian Keuangan Pinjaman -->
-              <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
-                <div class="p-2.5 rounded-xl bg-white border border-slate-200">
-                  <span class="text-[10px] text-slate-400 block">Total Pinjaman Cair</span>
-                  <span class="text-sm font-extrabold text-slate-900 mt-0.5 block">{formatRupiah(cb.amount_approved)}</span>
-                </div>
-                <div class="p-2.5 rounded-xl bg-white border border-slate-200">
-                  <span class="text-[10px] text-slate-400 block">Sudah Terpotong Gaji</span>
-                  <span class="text-sm font-extrabold text-emerald-600 mt-0.5 block">{formatRupiah(cb.total_repaid)}</span>
-                </div>
-                <div class="p-2.5 rounded-xl bg-rose-50/70 border border-rose-200">
-                  <span class="text-[10px] text-rose-700 block font-medium">Sisa Belum Dipotong (Utang)</span>
-                  <span class="text-sm font-extrabold text-rose-600 mt-0.5 block">{formatRupiah(cb.remaining_balance)}</span>
-                </div>
-              </div>
-
-              {cb.admin_notes && (
-                <div class="mt-2 text-[11px] text-slate-500 bg-white/70 p-2 rounded-xl border border-slate-100">
-                  <span class="font-semibold text-slate-600">Catatan Admin:</span> {cb.admin_notes}
-                </div>
-              )}
-            </div>
-          ))}
-
-          <!-- Info Banner Pemotongan Otomatis -->
-          <div class="mt-4 p-3 rounded-2xl bg-indigo-50/80 border border-indigo-100 flex items-start gap-2 text-xs text-indigo-950">
-            <span class="text-indigo-600 font-bold text-sm">💡</span>
-            <div>
-              <strong>Kemana arah sisa pinjaman ini?</strong>
-              <p class="text-[11px] text-indigo-800 mt-0.5 leading-relaxed">
-                Sisa pinjaman sebesar <strong>{formatRupiah(totalUnpaidCashbon)}</strong> ini akan <strong>dipotong otomatis dari Slip Gaji Anda</strong> saat Admin memproses pembayaran gaji berikutnya. Anda tidak perlu membayar tunai ke kantor.
-              </p>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div class="flex flex-col sm:flex-row items-center justify-between gap-3 p-2 text-xs">
-          <div class="flex items-center gap-3">
-            <span class="w-8 h-8 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold text-sm">✓</span>
-            <div>
-              <span class="font-bold text-slate-800 block">Tidak ada potongan cashbon aktif</span>
-              <span class="text-[11px] text-slate-500 block">Seluruh gaji berjalan akan Anda terima utuh saat jadwal gajian.</span>
-            </div>
-          </div>
-          <a
-            href="/karyawan/cashbon"
-            class="px-3.5 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold transition shadow-sm"
-          >
-            + Ajukan Cashbon
-          </a>
-        </div>
-      )}
+      <div>
+        <a
+          href="/karyawan/cashbon"
+          class="px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 transition inline-block"
+        >
+          Kelola Cashbon &rarr;
+        </a>
+      </div>
     </div>
 
     <!-- Riwayat Absen Terbaru -->
