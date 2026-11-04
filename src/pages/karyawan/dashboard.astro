@@ -2,7 +2,15 @@
 import Layout from '../../layouts/Layout.astro';
 import { getCurrentUser } from '../../lib/auth';
 import { queryOne, queryAll } from '../../lib/db';
-import { computeEmployeeRealtimePayroll, formatRupiah, formatIndonesianDate, getJakartaTodayStr } from '../../lib/payroll';
+import { 
+  computeEmployeeRealtimePayroll, 
+  formatRupiah, 
+  formatIndonesianDate, 
+  getJakartaTodayStr,
+  getEmployeePayrollCycle,
+  getSettledPayrollInPeriod,
+  getRateUnitLabel
+} from '../../lib/payroll';
 import type { Employee, AttendanceRecord } from '../../lib/types';
 
 const currentUser = await getCurrentUser(Astro.cookies);
@@ -19,7 +27,9 @@ if (!employee) {
   return Astro.redirect('/login');
 }
 
-const payrollInfo = await computeEmployeeRealtimePayroll(employee);
+const cycleInfo = getEmployeePayrollCycle(employee);
+const payrollInfo = await computeEmployeeRealtimePayroll(employee, cycleInfo.startDate, cycleInfo.endDate);
+const settledInfo = await getSettledPayrollInPeriod(employee.id, cycleInfo.startDate, cycleInfo.endDate);
 
 // Today's attendance
 const todayStr = getJakartaTodayStr();
@@ -150,18 +160,43 @@ const totalUnpaidCashbon = activeCashbons.reduce((sum, c) => sum + c.remaining_b
         </div>
       </div>
 
-      <!-- Gaji Berjalan -->
+      <!-- Gaji Periode Ini -->
       <div class="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
         <div>
-          <div class="flex items-center justify-between text-xs text-slate-400 mb-2">
-            <span>Gaji Berjalan Saya</span>
+          <div class="flex items-center justify-between text-xs text-slate-400 mb-1.5">
+            <span class="font-medium">Gaji Periode Ini</span>
             <span class="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 font-semibold text-[10px] capitalize">
               Gaji {employee.scheme.replace('_', ' ')}
             </span>
           </div>
-          <div class="text-2xl font-extrabold text-indigo-600">{payrollInfo.currency_formatted}</div>
-          <p class="text-xs text-slate-500 mt-1">Terkumpul periode ini</p>
+
+          <div class="text-[11px] font-medium text-slate-500 mb-3 flex items-center gap-1.5">
+            <svg class="w-3.5 h-3.5 text-slate-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+            </svg>
+            <span>{cycleInfo.label}</span>
+          </div>
+
+          <div class="space-y-2 bg-slate-50/70 p-3 rounded-2xl border border-slate-100 text-xs">
+            <div class="flex items-center justify-between">
+              <span class="text-slate-500">Tarif / Pokok</span>
+              <span class="font-bold text-slate-900">{formatRupiah(employee.base_rate)} {getRateUnitLabel(employee.scheme)}</span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-slate-500">Gaji Sudah Cair</span>
+              <span class={`font-bold ${settledInfo.totalSettled > 0 ? 'text-emerald-600' : 'text-slate-600'}`}>
+                {formatRupiah(settledInfo.totalSettled)}
+              </span>
+            </div>
+            <div class="flex items-center justify-between pt-1.5 border-t border-slate-200/60">
+              <span class="text-slate-600 font-medium">Gaji Belum Cair</span>
+              <span class="font-extrabold text-indigo-600">
+                {payrollInfo.currency_formatted}
+              </span>
+            </div>
+          </div>
         </div>
+
         <div class="mt-4 pt-3 border-t border-slate-100">
           <a href="/karyawan/payroll" class="text-xs font-semibold text-indigo-600 hover:text-indigo-800">
             Lihat Rincian Gaji &rarr;

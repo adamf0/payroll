@@ -2,7 +2,15 @@
 import Layout from '../../layouts/Layout.astro';
 import { getCurrentUser } from '../../lib/auth';
 import { queryOne, queryAll } from '../../lib/db';
-import { computeEmployeeRealtimePayroll, formatRupiah, formatIndonesianDate, getJakartaNow } from '../../lib/payroll';
+import { 
+  computeEmployeeRealtimePayroll, 
+  formatRupiah, 
+  formatIndonesianDate, 
+  getJakartaNow,
+  getEmployeePayrollCycle,
+  getSettledPayrollInPeriod,
+  getRateUnitLabel
+} from '../../lib/payroll';
 import type { Employee, PayrollSettlement } from '../../lib/types';
 
 const currentUser = await getCurrentUser(Astro.cookies);
@@ -17,12 +25,13 @@ const jakartaNow = getJakartaNow();
 const currentYear = parseInt(jakartaNow.dateStr.substring(0, 4), 10);
 const currentMonthStr = jakartaNow.dateStr.substring(5, 7);
 
-// Default date bounds for current month
-const daysInCurrentMonth = new Date(currentYear, parseInt(currentMonthStr, 10), 0).getDate();
-const defaultStartDate = `${currentYear}-${currentMonthStr}-01`;
-const defaultEndDate = `${currentYear}-${currentMonthStr}-${String(daysInCurrentMonth).padStart(2, '0')}`;
+// Active payroll cycle based on employee's start working date (join_date)
+const cycleInfo = getEmployeePayrollCycle(employee);
+const defaultStartDate = cycleInfo.startDate;
+const defaultEndDate = cycleInfo.endDate;
 
 const payrollInfo = await computeEmployeeRealtimePayroll(employee, defaultStartDate, defaultEndDate);
+const settledInfo = await getSettledPayrollInPeriod(employee.id, defaultStartDate, defaultEndDate);
 
 // Fetch all unbilled attendance records for this employee (for client-side dynamic filtering)
 const allUnbilledRecords = await queryAll<{
@@ -56,13 +65,6 @@ function getUnitLabel(scheme: string, units: number) {
   if (scheme === 'harian') return `${units} Hari Kerja`;
   if (scheme === 'mingguan') return `${units} Minggu`;
   return `${units} Bulan`;
-}
-
-function getRateUnitLabel(scheme: string) {
-  if (scheme === 'per_jam') return '/ jam';
-  if (scheme === 'harian') return '/ hari';
-  if (scheme === 'mingguan') return '/ minggu';
-  return '/ bulan';
 }
 
 const monthsList = [
@@ -145,6 +147,7 @@ const yearsList = [currentYear - 1, currentYear, currentYear + 1];
               <input
                 type="date"
                 id="filterStartDate"
+                value={defaultStartDate}
                 onchange="onSpecificDateChange()"
                 class="text-xs font-medium text-slate-700 bg-transparent focus:outline-none cursor-pointer"
                 title="Dari Tanggal"
@@ -153,6 +156,7 @@ const yearsList = [currentYear - 1, currentYear, currentYear + 1];
               <input
                 type="date"
                 id="filterEndDate"
+                value={defaultEndDate}
                 onchange="onSpecificDateChange()"
                 class="text-xs font-medium text-slate-700 bg-transparent focus:outline-none cursor-pointer"
                 title="Sampai Tanggal"
@@ -174,17 +178,36 @@ const yearsList = [currentYear - 1, currentYear, currentYear + 1];
       </div>
     </div>
 
-    <!-- Gaji Berjalan Card -->
+    <!-- Gaji & Ringkasan Periode Ini Card -->
     <div class="bg-white rounded-3xl p-6 sm:p-7 border border-slate-200/80 shadow-sm mb-8">
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-100">
         <div>
-          <span id="gaji-berjalan-period-title" class="text-xs font-semibold text-slate-400 block mb-1">
-            Gaji Berjalan Periode Ini ({currentMonthLabel} {currentYear})
-          </span>
-          <div id="gaji-berjalan-amount" class="text-3xl font-extrabold text-indigo-600">
-            {payrollInfo.currency_formatted}
+          <div class="flex items-center gap-2 mb-1">
+            <span id="gaji-berjalan-period-title" class="text-xs font-semibold text-slate-400">
+              Periode Penggajian: {cycleInfo.label}
+            </span>
+            <span class="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 font-semibold text-[10px] capitalize">
+              Gaji {employee.scheme.replace('_', ' ')}
+            </span>
           </div>
-          <p id="gaji-berjalan-desc" class="text-xs text-slate-500 mt-1">
+
+          <div class="flex flex-wrap items-baseline gap-6 mt-2">
+            <div>
+              <span class="text-[11px] text-slate-400 block mb-0.5">Gaji Sudah Cair</span>
+              <div id="gaji-settled-amount" class={`text-2xl sm:text-3xl font-extrabold ${settledInfo.totalSettled > 0 ? 'text-emerald-600' : 'text-slate-700'}`}>
+                {formatRupiah(settledInfo.totalSettled)}
+              </div>
+            </div>
+
+            <div class="border-l border-slate-200 pl-6">
+              <span class="text-[11px] text-slate-400 block mb-0.5">Gaji Belum Cair (Berjalan)</span>
+              <div id="gaji-berjalan-amount" class="text-2xl sm:text-3xl font-extrabold text-indigo-600">
+                {payrollInfo.currency_formatted}
+              </div>
+            </div>
+          </div>
+
+          <p id="gaji-berjalan-desc" class="text-xs text-slate-500 mt-2">
             {payrollInfo.accrued_amount > 0
               ? (employee.scheme === 'per_jam' || employee.scheme === 'harian'
                 ? 'Gaji berjalan yang siap dicairkan hari itu juga'
@@ -219,14 +242,24 @@ const yearsList = [currentYear - 1, currentYear, currentYear + 1];
       </div>
 
       <!-- Rincian Sederhana -->
-      <div class="grid grid-cols-1 sm:grid-cols-3 gap-5 pt-5 text-xs">
+      <div class="grid grid-cols-1 sm:grid-cols-4 gap-4 pt-5 text-xs">
         <div>
-          <span class="text-slate-400 block mb-1">Tarif Gaji</span>
+          <span class="text-slate-400 block mb-1">Tarif / Gaji Pokok</span>
           <div class="text-sm font-bold text-slate-900">
             {formatRupiah(employee.base_rate)} {getRateUnitLabel(employee.scheme)}
           </div>
           <span class="text-[10px] text-slate-400 block mt-0.5">
             {employee.scheme === 'mingguan' ? 'Dibagi 6 hari kerja/minggu' : employee.scheme === 'bulanan' ? 'Dibagi 26 hari kerja/bulan' : ''}
+          </span>
+        </div>
+
+        <div>
+          <span class="text-slate-400 block mb-1">Slip Gaji Dicairkan</span>
+          <div id="gaji-settled-count" class="text-sm font-bold text-slate-900">
+            {settledInfo.settlementCount > 0 ? `${settledInfo.settlementCount} Slip Dicairkan` : 'Belum Ada'}
+          </div>
+          <span class="text-[10px] text-slate-400 block mt-0.5">
+            Total {formatRupiah(settledInfo.totalSettled)}
           </span>
         </div>
 
@@ -532,6 +565,9 @@ const yearsList = [currentYear - 1, currentYear, currentYear + 1];
     baseRate: Number(employee.base_rate) || 0,
     defaultMonthVal: currentMonthStr,
     defaultYearVal: currentYear,
+    defaultStartDateVal: defaultStartDate,
+    defaultEndDateVal: defaultEndDate,
+    defaultCycleLabel: cycleInfo.label,
     unbilledRecords: allUnbilledRecords,
   }}>
     let activeSlipData = null;
@@ -676,10 +712,10 @@ const yearsList = [currentYear - 1, currentYear, currentYear + 1];
       const startInput = document.getElementById('filterStartDate');
       const endInput = document.getElementById('filterEndDate');
 
-      if (monthSelect) monthSelect.value = defaultMonthVal;
+      if (monthSelect) monthSelect.value = 'all';
       if (yearSelect) yearSelect.value = String(defaultYearVal);
-      if (startInput) startInput.value = '';
-      if (endInput) endInput.value = '';
+      if (startInput) startInput.value = defaultStartDateVal;
+      if (endInput) endInput.value = defaultEndDateVal;
 
       window.applyFilters();
     };
@@ -881,6 +917,17 @@ const yearsList = [currentYear - 1, currentYear, currentYear + 1];
 
       const netEl = document.getElementById('summary-net-val');
       if (netEl) netEl.textContent = formatRupiahJS(totalNet);
+
+      const settledAmountEl = document.getElementById('gaji-settled-amount');
+      if (settledAmountEl) {
+        settledAmountEl.textContent = formatRupiahJS(totalNet);
+        settledAmountEl.className = `text-2xl sm:text-3xl font-extrabold ${totalNet > 0 ? 'text-emerald-600' : 'text-slate-700'}`;
+      }
+
+      const settledCountEl = document.getElementById('gaji-settled-count');
+      if (settledCountEl) {
+        settledCountEl.textContent = visibleCount > 0 ? `${visibleCount} Slip Dicairkan` : 'Belum Ada';
+      }
 
       const emptyFilteredEl = document.getElementById('no-slips-filtered-row');
       const tfootEl = document.getElementById('slip-table-tfoot');

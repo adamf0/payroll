@@ -169,6 +169,117 @@ export function getWeekRange(dStr: string): { monStr: string; satStr: string } {
 }
 
 /**
+ * Returns rate unit label: '/ jam', '/ hari', '/ minggu', '/ bulan'
+ */
+export function getRateUnitLabel(scheme: string): string {
+  if (scheme === 'per_jam') return '/ jam';
+  if (scheme === 'harian') return '/ hari';
+  if (scheme === 'mingguan') return '/ minggu';
+  return '/ bulan';
+}
+
+/**
+ * Calculates current active payroll cycle based on employee's start date (join_date).
+ * Example: If employee joined on 2025-04-10, monthly cycle is 10th to 10th of next month (2025-04-10 sd 2025-05-10).
+ */
+export function getEmployeePayrollCycle(
+  employee: { join_date?: string; scheme?: string; payday_rule?: string },
+  refDate: Date = new Date()
+): {
+  startDate: string;
+  endDate: string;
+  cycleDay: number;
+  label: string;
+} {
+  let anchorDay = 1;
+  if (employee.join_date && /^\d{4}-\d{2}-\d{2}/.test(employee.join_date)) {
+    const parts = employee.join_date.split('-');
+    anchorDay = parseInt(parts[2], 10) || 1;
+  } else if (employee.payday_rule && /^\d+$/.test(employee.payday_rule)) {
+    anchorDay = parseInt(employee.payday_rule, 10) || 1;
+  }
+
+  const now = new Date(refDate);
+  const curY = now.getFullYear();
+  const curM = now.getMonth(); // 0-indexed: 0 = Jan, 10 = Nov
+  const curD = now.getDate();
+
+  let startY: number;
+  let startM: number;
+  let endY: number;
+  let endM: number;
+
+  if (curD < anchorDay) {
+    const prev = new Date(curY, curM - 1, 1);
+    startY = prev.getFullYear();
+    startM = prev.getMonth();
+    endY = curY;
+    endM = curM;
+  } else {
+    startY = curY;
+    startM = curM;
+    const next = new Date(curY, curM + 1, 1);
+    endY = next.getFullYear();
+    endM = next.getMonth();
+  }
+
+  const maxStartDays = new Date(startY, startM + 1, 0).getDate();
+  const maxEndDays = new Date(endY, endM + 1, 0).getDate();
+  const startDayClamped = Math.min(anchorDay, maxStartDays);
+  const endDayClamped = Math.min(anchorDay, maxEndDays);
+
+  const startMonthStr = String(startM + 1).padStart(2, '0');
+  const endMonthStr = String(endM + 1).padStart(2, '0');
+
+  const startDate = `${startY}-${startMonthStr}-${String(startDayClamped).padStart(2, '0')}`;
+  const endDate = `${endY}-${endMonthStr}-${String(endDayClamped).padStart(2, '0')}`;
+
+  const monthNames = [
+    'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+    'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+  ];
+
+  let label: string;
+  if (startY === endY) {
+    label = `${startDayClamped} ${monthNames[startM]} - ${endDayClamped} ${monthNames[endM]} ${endY}`;
+  } else {
+    label = `${startDayClamped} ${monthNames[startM]} ${startY} - ${endDayClamped} ${monthNames[endM]} ${endY}`;
+  }
+
+  return {
+    startDate,
+    endDate,
+    cycleDay: anchorDay,
+    label,
+  };
+}
+
+/**
+ * Retrieves total disbursed salary from settled payroll slips within a specific period.
+ */
+export async function getSettledPayrollInPeriod(
+  employeeId: number,
+  startDate: string,
+  endDate: string
+): Promise<{ totalSettled: number; settlementCount: number }> {
+  const row = await queryOne<{ total_settled: number; settlement_count: number }>(
+    `SELECT 
+       COALESCE(SUM(amount_paid), 0) AS total_settled,
+       COUNT(*) AS settlement_count
+     FROM payroll_settlements
+     WHERE employee_id = ?
+       AND period_start >= ?
+       AND period_start <= ?`,
+    [employeeId, startDate, endDate]
+  );
+
+  return {
+    totalSettled: Number(row?.total_settled) || 0,
+    settlementCount: Number(row?.settlement_count) || 0,
+  };
+}
+
+/**
  * Computes real-time accrued payroll for a single employee (personal summary)
  */
 export async function computeEmployeeRealtimePayroll(
