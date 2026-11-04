@@ -8,8 +8,7 @@ import {
   formatIndonesianDate, 
   getJakartaTodayStr,
   getEmployeePayrollCycle,
-  getSettledPayrollInPeriod,
-  getRateUnitLabel
+  getSettledPayrollInPeriod
 } from '../../lib/payroll';
 import type { Employee, AttendanceRecord } from '../../lib/types';
 
@@ -178,10 +177,6 @@ const totalUnpaidCashbon = activeCashbons.reduce((sum, c) => sum + c.remaining_b
           </div>
 
           <div class="space-y-2 bg-slate-50/70 p-3 rounded-2xl border border-slate-100 text-xs">
-            <div class="flex items-center justify-between">
-              <span class="text-slate-500">Tarif / Pokok</span>
-              <span class="font-bold text-slate-900">{formatRupiah(employee.base_rate)} {getRateUnitLabel(employee.scheme)}</span>
-            </div>
             <div class="flex items-center justify-between">
               <span class="text-slate-500">Gaji Sudah Cair</span>
               <span class={`font-bold ${settledInfo.totalGross > 0 ? 'text-slate-900' : 'text-slate-600'}`}>
