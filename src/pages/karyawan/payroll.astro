@@ -60,12 +60,144 @@ const settlements = await queryAll<PayrollSettlement>(
   [employee.id]
 );
 
+// Fetch cashbon repayments linked to this employee's settlements
+const rawRepayments = await queryAll<{
+  id: number;
+  cashbon_id: number;
+  settlement_id: number;
+  deduction_amount: number;
+  repaid_at: string;
+  repayment_notes: string | null;
+  amount_requested: number;
+  amount_approved: number;
+  reason: string;
+  cashbon_status: string;
+  remaining_status: string;
+  disbursed_at: string | null;
+  admin_notes: string | null;
+  cashbon_created_at: string;
+  total_repaid_all: number;
+}>(`
+  SELECT 
+    r.id,
+    r.cashbon_id,
+    r.settlement_id,
+    r.amount AS deduction_amount,
+    r.repaid_at,
+    r.notes AS repayment_notes,
+    c.amount_requested,
+    c.amount_approved,
+    c.reason,
+    c.status AS cashbon_status,
+    c.remaining_status,
+    c.disbursed_at,
+    c.admin_notes,
+    c.created_at AS cashbon_created_at,
+    (SELECT COALESCE(SUM(cr.amount), 0) FROM cashbon_repayments cr WHERE cr.cashbon_id = c.id) AS total_repaid_all
+  FROM cashbon_repayments r
+  JOIN cashbon_requests c ON r.cashbon_id = c.id
+  WHERE r.settlement_id IN (
+    SELECT id FROM payroll_settlements WHERE employee_id = ?
+  )
+  ORDER BY r.id ASC
+`, [employee.id]);
+
+const repaymentsBySettlement = new Map<number, typeof rawRepayments>();
+for (const rep of rawRepayments) {
+  const list = repaymentsBySettlement.get(rep.settlement_id) || [];
+  list.push(rep);
+  repaymentsBySettlement.set(rep.settlement_id, list);
+}
+
 function getUnitLabel(scheme: string, units: number) {
   if (scheme === 'per_jam') return `${units} Jam Kerja`;
   if (scheme === 'harian') return `${units} Hari Kerja`;
   if (scheme === 'mingguan') return `${units} Minggu`;
   return `${units} Bulan`;
 }
+
+const settlementRows = settlements.map((s) => {
+  const baseWageNum = Number(s.rate) * Number(s.total_units);
+  const allwNum = Number(s.allowance) || 0;
+  const ovtNum = Number(s.overtime_pay) || 0;
+  const bnsNum = Number(s.bonus) || 0;
+  const grossNum = baseWageNum + allwNum + ovtNum + bnsNum;
+  const cashbonNum = Number(s.cashbon_deduction) || 0;
+  const netNum = Number(s.amount_paid);
+
+  const periodStartStr = s.period_start ? s.period_start.toString().substring(0, 10) : '';
+  const periodEndStr = s.period_end ? s.period_end.toString().substring(0, 10) : '';
+  const settledDateStr = s.settled_at ? s.settled_at.toString().substring(0, 10) : '';
+
+  const linkedRepayments = repaymentsBySettlement.get(s.id) || [];
+  const cashbonModalPayload = {
+    slipNo: `#SLIP-${s.id.toString().padStart(4, '0')}`,
+    period: `${formatIndonesianDate(s.period_start, false)} s/d ${formatIndonesianDate(s.period_end, false)}`,
+    settledDate: formatIndonesianDate(s.settled_at),
+    totalDeduction: cashbonNum,
+    totalDeductionFormatted: formatRupiah(cashbonNum),
+    items: linkedRepayments.map((item) => {
+      const approved = Number(item.amount_approved) || 0;
+      const repaidAll = Number(item.total_repaid_all) || 0;
+      const remaining = Math.max(0, approved - repaidAll);
+      const isFull = remaining <= 0 || item.cashbonStatus === 'settled';
+      return {
+        repaymentId: item.id,
+        cashbonId: item.cashbon_id,
+        cashbonCode: `#CSB-${item.cashbon_id.toString().padStart(4, '0')}`,
+        deductionAmount: Number(item.deduction_amount) || 0,
+        deductionFormatted: formatRupiah(Number(item.deduction_amount) || 0),
+        amountApproved: approved,
+        amountApprovedFormatted: formatRupiah(approved),
+        amountRequested: Number(item.amount_requested) || 0,
+        amountRequestedFormatted: formatRupiah(Number(item.amount_requested) || 0),
+        totalRepaidAll: repaidAll,
+        totalRepaidAllFormatted: formatRupiah(repaidAll),
+        remaining: remaining,
+        remainingFormatted: formatRupiah(remaining),
+        isFull,
+        statusBadgeLabel: isFull ? 'Lunas Terpotong Penuh' : 'Potongan Sebagian (Parsial)',
+        reason: item.reason,
+        cashbonStatus: item.cashbon_status,
+        disbursedAtFormatted: item.disbursed_at ? formatIndonesianDate(item.disbursed_at) : '-',
+        createdAtFormatted: item.cashbon_created_at ? formatIndonesianDate(item.cashbon_created_at) : '-',
+        repaymentNotes: item.repayment_notes || `Potongan otomatis gaji via slip #${s.id}`,
+        adminNotes: item.admin_notes || '-'
+      };
+    })
+  };
+
+  const slipDataObj = {
+    slipNo: `#SLIP-${s.id.toString().padStart(4, '0')}`,
+    empName: employee.name,
+    empNik: employee.nik,
+    position: employee.position || '',
+    period: `${formatIndonesianDate(s.period_start, false)} s/d ${formatIndonesianDate(s.period_end, false)}`,
+    scheme: s.scheme.replace('_', ' '),
+    units: getUnitLabel(s.scheme, s.total_units),
+    rateFormatted: `${formatRupiah(s.rate)} ${getRateUnitLabel(s.scheme)}`,
+    baseWage: formatRupiah(baseWageNum),
+    allowance: formatRupiah(allwNum),
+    overtime: formatRupiah(ovtNum),
+    bonus: formatRupiah(bnsNum),
+    cashbon: formatRupiah(cashbonNum),
+    amountFormatted: formatRupiah(netNum),
+    settledDate: formatIndonesianDate(s.settled_at),
+    cashbonData: cashbonModalPayload
+  };
+
+  return {
+    s,
+    slipDataObj,
+    cashbonModalPayload,
+    grossNum,
+    cashbonNum,
+    netNum,
+    periodStartStr,
+    periodEndStr,
+    settledDateStr
+  };
+});
 
 const monthsList = [
   { val: 'all', label: 'Semua Bulan' },
@@ -350,39 +482,8 @@ const yearsList = [currentYear - 1, currentYear, currentYear + 1];
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100" id="slip-table-body">
-            {settlements.length > 0 ? (
-              settlements.map((s) => {
-                const baseWageNum = Number(s.rate) * Number(s.total_units);
-                const allwNum = Number(s.allowance) || 0;
-                const ovtNum = Number(s.overtime_pay) || 0;
-                const bnsNum = Number(s.bonus) || 0;
-                const grossNum = baseWageNum + allwNum + ovtNum + bnsNum;
-                const cashbonNum = Number(s.cashbon_deduction) || 0;
-                const netNum = Number(s.amount_paid);
-
-                const periodStartStr = s.period_start ? s.period_start.toString().substring(0, 10) : '';
-                const periodEndStr = s.period_end ? s.period_end.toString().substring(0, 10) : '';
-                const settledDateStr = s.settled_at ? s.settled_at.toString().substring(0, 10) : '';
-
-                const slipDataObj = {
-                  slipNo: `#SLIP-${s.id.toString().padStart(4, '0')}`,
-                  empName: employee.name,
-                  empNik: employee.nik,
-                  position: employee.position || '',
-                  period: `${formatIndonesianDate(s.period_start, false)} s/d ${formatIndonesianDate(s.period_end, false)}`,
-                  scheme: s.scheme.replace('_', ' '),
-                  units: getUnitLabel(s.scheme, s.total_units),
-                  rateFormatted: `${formatRupiah(s.rate)} ${getRateUnitLabel(s.scheme)}`,
-                  baseWage: formatRupiah(baseWageNum),
-                  allowance: formatRupiah(allwNum),
-                  overtime: formatRupiah(ovtNum),
-                  bonus: formatRupiah(bnsNum),
-                  cashbon: formatRupiah(cashbonNum),
-                  amountFormatted: formatRupiah(netNum),
-                  settledDate: formatIndonesianDate(s.settled_at)
-                };
-
-                return (
+            {settlementRows.length > 0 ? (
+              settlementRows.map(({ s, slipDataObj, cashbonModalPayload, grossNum, cashbonNum, netNum, periodStartStr, periodEndStr, settledDateStr }) => (
                   <tr
                     class="slip-row hover:bg-slate-50/80 transition-colors"
                     data-slip-no={slipDataObj.slipNo}
@@ -410,9 +511,17 @@ const yearsList = [currentYear - 1, currentYear, currentYear + 1];
                     </td>
                     <td class="py-3.5 px-4 text-right whitespace-nowrap">
                       {cashbonNum > 0 ? (
-                        <span class="font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-lg border border-rose-100">
-                          -{formatRupiah(cashbonNum)}
-                        </span>
+                        <button
+                          type="button"
+                          onclick={`openCashbonModal(${JSON.stringify(cashbonModalPayload)})`}
+                          class="inline-flex items-center gap-1.5 font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 hover:text-rose-800 px-2.5 py-1 rounded-xl border border-rose-200 hover:border-rose-300 transition text-xs cursor-pointer shadow-sm group"
+                          title="Klik untuk melihat rincian cashbon yang dipotong pada slip ini"
+                        >
+                          <span>-{formatRupiah(cashbonNum)}</span>
+                          <svg class="w-3.5 h-3.5 text-rose-400 group-hover:text-rose-700 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                        </button>
                       ) : (
                         <span class="text-slate-400 font-medium">-</span>
                       )}
@@ -445,8 +554,8 @@ const yearsList = [currentYear - 1, currentYear, currentYear + 1];
                       </div>
                     </td>
                   </tr>
-                );
-              })
+                )
+              )
             ) : null}
             <tr id="no-slips-row" class={settlements.length > 0 ? "hidden" : ""}>
               <td colspan="8" class="py-8 text-center text-slate-400">
@@ -529,9 +638,19 @@ const yearsList = [currentYear - 1, currentYear, currentYear + 1];
           <div class="border-t border-slate-100 pt-2 font-semibold text-rose-600 text-[11px] uppercase tracking-wider">
             Potongan
           </div>
-          <div class="flex justify-between text-rose-600 font-semibold">
+          <div class="flex justify-between items-center text-rose-600 font-semibold">
             <span>Potongan Cashbon:</span>
-            <span id="modal-cashbon">-Rp 0</span>
+            <div class="flex items-center gap-1.5">
+              <span id="modal-cashbon">-Rp 0</span>
+              <button
+                type="button"
+                id="modal-cashbon-detail-btn"
+                class="hidden text-[10px] bg-rose-100 hover:bg-rose-200 text-rose-700 font-bold px-2 py-0.5 rounded-full border border-rose-200 transition cursor-pointer"
+                onclick="openCashbonModalFromSlip()"
+              >
+                Lihat Rincian &rarr;
+              </button>
+            </div>
           </div>
         </div>
 
@@ -565,6 +684,65 @@ const yearsList = [currentYear - 1, currentYear, currentYear + 1];
         >
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
           Cetak / Simpan PDF
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Rincian Cashbon Terkait Slip Gaji -->
+  <div id="cashbon-detail-modal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm hidden flex items-center justify-center p-4" onclick="if(event.target === this) closeCashbonModal()">
+    <div class="bg-white rounded-3xl max-w-lg w-full border border-slate-200 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+      <!-- Header -->
+      <div class="p-5 bg-gradient-to-r from-slate-900 to-indigo-950 text-white flex items-center justify-between shrink-0">
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
+            <h3 class="text-sm sm:text-base font-bold">Rincian Potongan Cashbon</h3>
+          </div>
+          <p class="text-xs text-slate-300 mt-0.5" id="cashbon-modal-subtitle">
+            Slip Gaji #SLIP-0000
+          </p>
+        </div>
+        <button
+          type="button"
+          onclick="closeCashbonModal()"
+          class="w-8 h-8 rounded-xl bg-white/10 hover:bg-white/20 text-white flex items-center justify-center text-base font-bold transition cursor-pointer"
+          title="Tutup"
+        >
+          &times;
+        </button>
+      </div>
+
+      <!-- Body -->
+      <div class="p-5 sm:p-6 overflow-y-auto space-y-4 text-xs text-slate-700 flex-1">
+        <!-- Summary Card -->
+        <div class="p-4 rounded-2xl bg-rose-50/80 border border-rose-100 flex items-center justify-between">
+          <div>
+            <span class="text-[11px] font-semibold text-rose-800 block">Total Potongan Pada Slip Ini</span>
+            <span class="text-[11px] text-rose-600" id="cashbon-modal-period-text">Periode Slip</span>
+          </div>
+          <div class="text-lg sm:text-xl font-extrabold text-rose-700" id="cashbon-modal-total-val">
+            -Rp 0
+          </div>
+        </div>
+
+        <!-- Cashbon Items List -->
+        <div id="cashbon-modal-items-container" class="space-y-3.5">
+          <!-- Dynamic cards injected via JS -->
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div class="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between shrink-0">
+        <span class="text-[11px] text-slate-400">
+          Data tersinkron otomatis dengan kasbon Anda
+        </span>
+        <button
+          type="button"
+          onclick="closeCashbonModal()"
+          class="px-4 py-2 rounded-xl text-xs font-semibold bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 transition cursor-pointer shadow-sm"
+        >
+          Tutup
         </button>
       </div>
     </div>
@@ -616,11 +794,144 @@ const yearsList = [currentYear - 1, currentYear, currentYear + 1];
       document.getElementById('modal-cashbon').textContent = `-${data.cashbon || 'Rp 0'}`;
       document.getElementById('modal-amount').textContent = data.amountFormatted;
 
+      const cashbonBtn = document.getElementById('modal-cashbon-detail-btn');
+      if (cashbonBtn) {
+        if (data.cashbonData && Number(data.cashbonData.totalDeduction) > 0) {
+          cashbonBtn.classList.remove('hidden');
+        } else {
+          cashbonBtn.classList.add('hidden');
+        }
+      }
+
       document.getElementById('slip-modal').classList.remove('hidden');
     };
 
     window.closeSlipModal = function () {
       document.getElementById('slip-modal').classList.add('hidden');
+    };
+
+    window.openCashbonModal = function (data) {
+      if (!data) return;
+      document.getElementById('cashbon-modal-subtitle').textContent = `${data.slipNo} • Periode: ${data.period}`;
+      document.getElementById('cashbon-modal-period-text').textContent = `Dipotong pada ${data.settledDate}`;
+      document.getElementById('cashbon-modal-total-val').textContent = `-${data.totalDeductionFormatted || formatRupiahJS(data.totalDeduction)}`;
+
+      const container = document.getElementById('cashbon-modal-items-container');
+      if (container) {
+        if (!data.items || data.items.length === 0) {
+          container.innerHTML = `
+            <div class="p-5 rounded-2xl bg-slate-50 border border-slate-200 text-center text-slate-500">
+              <svg class="w-8 h-8 text-slate-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <p class="font-bold text-slate-800 text-xs">Potongan Langsung Slip Gaji</p>
+              <p class="text-[11px] text-slate-500 mt-1">Potongan sebesar <strong>${data.totalDeductionFormatted || formatRupiahJS(data.totalDeduction)}</strong> dicatat saat pembayaran slip gaji ini.</p>
+            </div>
+          `;
+        } else {
+          container.innerHTML = data.items.map((item, idx) => {
+            const isFull = item.isFull;
+            const badgeBg = isFull 
+              ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
+              : 'bg-amber-50 text-amber-700 border-amber-200';
+            const statusDot = isFull ? 'bg-emerald-500' : 'bg-amber-500';
+            
+            const percentPaid = item.amountApproved > 0 
+              ? Math.min(100, Math.round((item.totalRepaidAll / item.amountApproved) * 100))
+              : 100;
+
+            return `
+              <div class="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+                <!-- Card Header -->
+                <div class="px-4 py-3 bg-slate-50/80 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2">
+                  <div class="flex items-center gap-2">
+                    <span class="font-mono font-bold text-slate-900 text-xs">${item.cashbonCode}</span>
+                    <span class="text-[10px] text-slate-400">Pinjaman #${idx + 1}</span>
+                  </div>
+                  <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${badgeBg}">
+                    <span class="w-1.5 h-1.5 rounded-full ${statusDot}"></span>
+                    <span>${item.statusBadgeLabel}</span>
+                  </span>
+                </div>
+
+                <!-- Card Body -->
+                <div class="p-4 space-y-3">
+                  <!-- 3 Financial Metrics -->
+                  <div class="grid grid-cols-3 gap-2 text-center">
+                    <div class="p-2.5 rounded-xl bg-rose-50/70 border border-rose-100">
+                      <span class="text-[10px] text-slate-500 block mb-0.5">Dipotong Slip Ini</span>
+                      <span class="text-xs sm:text-sm font-extrabold text-rose-600">-${item.deductionFormatted}</span>
+                    </div>
+                    <div class="p-2.5 rounded-xl bg-slate-50 border border-slate-100">
+                      <span class="text-[10px] text-slate-500 block mb-0.5">Total Pinjaman</span>
+                      <span class="text-xs sm:text-sm font-bold text-slate-800">${item.amountApprovedFormatted}</span>
+                    </div>
+                    <div class="p-2.5 rounded-xl ${isFull ? 'bg-emerald-50/70 border border-emerald-100' : 'bg-amber-50/70 border border-amber-100'}">
+                      <span class="text-[10px] text-slate-500 block mb-0.5">Sisa Pinjaman</span>
+                      <span class="text-xs sm:text-sm font-extrabold ${isFull ? 'text-emerald-700' : 'text-amber-700'}">
+                        ${isFull ? 'Rp 0 (Lunas)' : item.remainingFormatted}
+                      </span>
+                    </div>
+                  </div>
+
+                  <!-- Progress Bar -->
+                  <div class="pt-1">
+                    <div class="flex justify-between text-[10px] text-slate-500 mb-1">
+                      <span>Progress Pelunasan Pinjaman</span>
+                      <span class="font-bold ${isFull ? 'text-emerald-700' : 'text-amber-700'}">${percentPaid}%</span>
+                    </div>
+                    <div class="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                      <div class="${isFull ? 'bg-emerald-500' : 'bg-amber-500'} h-2 rounded-full transition-all duration-500" style="width: ${percentPaid}%"></div>
+                    </div>
+                    <div class="flex justify-between text-[10px] text-slate-400 mt-1">
+                      <span>Total Terbayar: <strong>${item.totalRepaidAllFormatted}</strong></span>
+                      <span>Total Disetujui: <strong>${item.amountApprovedFormatted}</strong></span>
+                    </div>
+                  </div>
+
+                  <!-- Information Details -->
+                  <div class="pt-2 border-t border-slate-100 space-y-1.5 text-[11px]">
+                    <div class="flex justify-between items-start gap-2">
+                      <span class="text-slate-400 shrink-0">Keperluan:</span>
+                      <span class="text-slate-800 font-medium text-right">${item.reason || '-'}</span>
+                    </div>
+                    <div class="flex justify-between items-center gap-2">
+                      <span class="text-slate-400 shrink-0">Tgl Diajukan:</span>
+                      <span class="text-slate-700 text-right">${item.createdAtFormatted}</span>
+                    </div>
+                    <div class="flex justify-between items-center gap-2">
+                      <span class="text-slate-400 shrink-0">Tgl Pencairan Dana:</span>
+                      <span class="text-slate-700 text-right">${item.disbursedAtFormatted}</span>
+                    </div>
+                    <div class="flex justify-between items-start gap-2">
+                      <span class="text-slate-400 shrink-0">Catatan Pemotongan:</span>
+                      <span class="text-slate-700 text-right font-mono text-[10px]">${item.repaymentNotes || '-'}</span>
+                    </div>
+                    ${item.adminNotes && item.adminNotes !== '-' ? `
+                      <div class="flex justify-between items-start gap-2">
+                        <span class="text-slate-400 shrink-0">Catatan Admin:</span>
+                        <span class="text-slate-700 text-right italic">${item.adminNotes}</span>
+                      </div>
+                    ` : ''}
+                  </div>
+                </div>
+              </div>
+            `;
+          }).join('');
+        }
+      }
+
+      document.getElementById('cashbon-detail-modal').classList.remove('hidden');
+    };
+
+    window.closeCashbonModal = function () {
+      document.getElementById('cashbon-detail-modal').classList.add('hidden');
+    };
+
+    window.openCashbonModalFromSlip = function () {
+      if (activeSlipData && activeSlipData.cashbonData) {
+        window.openCashbonModal(activeSlipData.cashbonData);
+      }
     };
 
     window.printSlip = function (data) {
